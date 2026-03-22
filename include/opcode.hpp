@@ -1,6 +1,8 @@
+#pragma once
+#include <cstdint>
 #include <string>
 #include <array>
-enum class OPCODE {
+enum class OPCODE : uint8_t {
     NOP = 0,
     HALT,
    
@@ -80,7 +82,7 @@ constexpr auto generate_enum_names(std::index_sequence<Is...>) {
         enum_name_const<static_cast<OPCODE>(Is)>()...
     };
 }
-std::string_view enum_name(OPCODE op) {
+inline std::string_view enum_name(OPCODE op) {
     static constexpr auto names = generate_enum_names(std::make_index_sequence<static_cast<size_t>(OPCODE::END_GEN_ENUM_NAMES)>{});
     return names[static_cast<std::size_t>(op)];
 }

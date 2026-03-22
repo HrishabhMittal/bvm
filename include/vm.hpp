@@ -1,14 +1,15 @@
+#pragma once
 #include <cstdint>
 #include <ostream>
 #include <vector>
 #include <stdexcept>
 #include <iostream>
-#include "opcode.cpp"
+#include "opcode.hpp"
 struct instruction {
     OPCODE op;
-    size_t operands[1];
+    uint64_t operands[1];
 };
-std::ostream& operator<<(std::ostream& out, const OPCODE& i) {
+inline std::ostream& operator<<(std::ostream& out, const OPCODE& i) {
     out<<enum_name(i);
     return out;
 }
@@ -21,6 +22,24 @@ union Value {
     float    f32;
     void* ptr;
 };
+inline bool takes_operand(OPCODE op) {
+    switch (op) {
+        case OPCODE::PUSH:
+        case OPCODE::CALL:
+        case OPCODE::LOAD:
+        case OPCODE::STORE:
+        case OPCODE::JMP:
+        case OPCODE::JE:
+        case OPCODE::JNE:
+        case OPCODE::JLT:
+        case OPCODE::JGT:
+        case OPCODE::JLE:
+        case OPCODE::JGE:
+            return true;
+        default:
+            return false;
+    }
+}
 class VM {
     std::vector<Value> stack;
     std::vector<int64_t> call_stack;

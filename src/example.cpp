@@ -1,7 +1,16 @@
-#include "vm.cpp"
+#include <vm.hpp>
+#include <bytecode.hpp>
+#include <fstream>
+#include <ios>
 #include <iostream>
-int main() {
-    std::vector<instruction> code = {
+int main(int argc,char**argv) {
+    if (argc!=2) {
+        std::cout<<"provide file to dump example to"<<std::endl;
+        std::cout<<"usage: "<<argv[0]<<" <filename>"<<std::endl;
+        return 1;
+    }
+    std::ofstream file(argv[1],std::ios::binary);
+    std::vector<instruction> example = {
         {OPCODE::PUSH,{5}},
         {OPCODE::CALL,{37}},    
         {OPCODE::PRINT_I64,{}}, 
@@ -53,8 +62,5 @@ int main() {
         {OPCODE::PUSH,{1}},     
         {OPCODE::RET,{}}        
     };
-    std::cout << "expected:\n120\n19.625\n65535\n-2\n\noutput:" << std::endl;
-    VM vm(code);
-    vm.exec();
-    return 0;
+    dump_bytecode(example,file);
 }
