@@ -237,6 +237,12 @@ namespace bvm {
                         reinterpret_cast<uint64_t*>(pop().ptr)[index]=val.u64;
                         break;
                     }
+                    case OPCODE::I32_NEGATE: {
+                        Value r=pop();
+                        r.i32=-r.i32;
+                        push(r);
+                        break;
+                    }
                     case OPCODE::I32_ADD: {
                         Value b=pop();
                         Value a=pop();
@@ -297,6 +303,12 @@ namespace bvm {
                         Value r;
                         r.u64=0;
                         r.u32=a.u32 % b.u32;
+                        push(r);
+                        break;
+                    }
+                    case OPCODE::I64_NEGATE: {
+                        Value r=pop();
+                        r.i64=-r.i64;
                         push(r);
                         break;
                     }
@@ -363,6 +375,12 @@ namespace bvm {
                         push(r);
                         break;
                     }
+                    case OPCODE::F32_NEGATE: {
+                        Value r=pop();
+                        r.f32=-r.f32;
+                        push(r);
+                        break;
+                    }
                     case OPCODE::F32_ADD: {
                         Value b=pop();
                         Value a=pop();
@@ -396,6 +414,12 @@ namespace bvm {
                         Value r;
                         r.u64=0;
                         r.f32=a.f32 / b.f32;
+                        push(r);
+                        break;
+                    }
+                    case OPCODE::F64_NEGATE: {
+                        Value r=pop();
+                        r.f64=-r.f64;
                         push(r);
                         break;
                     }
@@ -559,56 +583,52 @@ namespace bvm {
                         push(r);
                         break;
                     }
-                    case OPCODE::PUSH_CMP: {
-                        Value r;
-                        r.u64=0|(cmp_flags[0]<<E)|(cmp_flags[1]<<LT)|(cmp_flags[2]<<GT);
-                    }
                     case OPCODE::I32_CMP: {
                         Value b=pop();
                         Value a=pop();
-                        cmp_flags[0]=(a.i32==b.i32);
-                        cmp_flags[1]=(a.i32<b.i32);
-                        cmp_flags[2]=(a.i32>b.i32);
+                        cmp_flags[E]=(a.i32==b.i32);
+                        cmp_flags[LT]=(a.i32<b.i32);
+                        cmp_flags[GT]=(a.i32>b.i32);
                         break;
                     }
                     case OPCODE::U32_CMP: {
                         Value b=pop();
                         Value a=pop();
-                        cmp_flags[0]=(a.u32==b.u32);
-                        cmp_flags[1]=(a.u32<b.u32);
-                        cmp_flags[2]=(a.u32>b.u32);
+                        cmp_flags[E]=(a.u32==b.u32);
+                        cmp_flags[LT]=(a.u32<b.u32);
+                        cmp_flags[GT]=(a.u32>b.u32);
                         break;
                     }
                     case OPCODE::I64_CMP: {
                         Value b=pop();
                         Value a=pop();
-                        cmp_flags[0]=(a.i64==b.i64);
-                        cmp_flags[1]=(a.i64<b.i64);
-                        cmp_flags[2]=(a.i64>b.i64);
+                        cmp_flags[E]=(a.i64==b.i64);
+                        cmp_flags[LT]=(a.i64<b.i64);
+                        cmp_flags[GT]=(a.i64>b.i64);
                         break;
                     }
                     case OPCODE::U64_CMP: {
                         Value b=pop();
                         Value a=pop();
-                        cmp_flags[0]=(a.u64==b.u64);
-                        cmp_flags[1]=(a.u64<b.u64);
-                        cmp_flags[2]=(a.u64>b.u64);
+                        cmp_flags[E]=(a.u64==b.u64);
+                        cmp_flags[LT]=(a.u64<b.u64);
+                        cmp_flags[GT]=(a.u64>b.u64);
                         break;
                     }
                     case OPCODE::F32_CMP: {
                         Value b=pop();
                         Value a=pop();
-                        cmp_flags[0]=(a.f32==b.f32);
-                        cmp_flags[1]=(a.f32<b.f32);
-                        cmp_flags[2]=(a.f32>b.f32);
+                        cmp_flags[E]=(a.f32==b.f32);
+                        cmp_flags[LT]=(a.f32<b.f32);
+                        cmp_flags[GT]=(a.f32>b.f32);
                         break;
                     }
                     case OPCODE::F64_CMP: {
                         Value b=pop();
                         Value a=pop();
-                        cmp_flags[0]=(a.f64==b.f64);
-                        cmp_flags[1]=(a.f64<b.f64);
-                        cmp_flags[2]=(a.f64>b.f64);
+                        cmp_flags[E]=(a.f64==b.f64);
+                        cmp_flags[LT]=(a.f64<b.f64);
+                        cmp_flags[GT]=(a.f64>b.f64);
                         break;
                     }
                     case OPCODE::I32_EXTEND_I64: {
@@ -784,7 +804,39 @@ namespace bvm {
                     }
 
 
+
                     // kinda temporary instructions, ill fix later hehe
+                    // update: nvm they seem kinda permanent
+                    case OPCODE::PE: {
+                        Value r;
+                        r.u64=cmp_flags[E]?0:1;
+                        break;
+                    }
+                    case OPCODE::PNE: {
+                        Value r;
+                        r.u64=cmp_flags[E]?1:0;
+                        break;
+                    }
+                    case OPCODE::PLT: {
+                        Value r;
+                        r.u64=cmp_flags[LT]?1:0;
+                        break;
+                    }
+                    case OPCODE::PGT: {
+                        Value r;
+                        r.u64=cmp_flags[GT]?1:0;
+                        break;
+                    }
+                    case OPCODE::PLE: {
+                        Value r;
+                        r.u64=(cmp_flags[LT] || cmp_flags[E])?1:0;
+                        break;
+                    }
+                    case OPCODE::PGE: {
+                        Value r;
+                        r.u64=(cmp_flags[GT] || cmp_flags[E])?1:0;
+                        break;
+                    }
                     case OPCODE::JC: {
                         bool jmp=pop().u64;
                         if (jmp) instruction_ptr=i.operands[0];
@@ -799,22 +851,22 @@ namespace bvm {
                         instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::JE:
-                        if (cmp_flags[0]) instruction_ptr=i.operands[0];
+                        if (cmp_flags[E]) instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::JNE:
-                        if (!cmp_flags[0]) instruction_ptr=i.operands[0];
+                        if (!cmp_flags[E]) instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::JLT:
-                        if (cmp_flags[1]) instruction_ptr=i.operands[0];
+                        if (cmp_flags[LT]) instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::JGT: 
-                        if (cmp_flags[2]) instruction_ptr=i.operands[0];
+                        if (cmp_flags[GT]) instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::JLE:
-                        if (cmp_flags[1] || cmp_flags[0]) instruction_ptr=i.operands[0];
+                        if (cmp_flags[LT] || cmp_flags[E]) instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::JGE:
-                        if (cmp_flags[2] || cmp_flags[0]) instruction_ptr=i.operands[0];
+                        if (cmp_flags[GT] || cmp_flags[E]) instruction_ptr=i.operands[0];
                         break;
                     case OPCODE::PRINT_U32:
                         std::cout<<pop().u32<<std::endl;

@@ -25,16 +25,21 @@ namespace bvm {
         I16_ASTORE,
         I32_ASTORE,
         I64_ASTORE,
-       
+
+        I32_NEGATE,
         I32_ADD, I32_SUB, I32_MULT, 
         I32_DIV, U32_DIV,
         I32_MOD, U32_MOD,
        
+        I64_NEGATE,
         I64_ADD, I64_SUB, I64_MULT,
         I64_DIV, U64_DIV, 
         I64_MOD, U64_MOD,
-       
+
+        F32_NEGATE,
         F32_ADD, F32_SUB, F32_MULT, F32_DIV,
+
+        F64_NEGATE,
         F64_ADD, F64_SUB, F64_MULT, F64_DIV,
        
         I32_AND, I32_OR, I32_XOR, I32_NOT, I32_SHL,
@@ -42,8 +47,6 @@ namespace bvm {
        
         I32_SHR, U32_SHR,
         I64_SHR, U64_SHR,
-
-        PUSH_CMP,
 
         I32_CMP, U32_CMP,
         I64_CMP, U64_CMP,
@@ -65,7 +68,8 @@ namespace bvm {
        
         F32_TO_F64,
         F64_TO_F32,
-       
+        
+        PE, PNE, PGT, PLT, PLE, PGE,
         JMP, JE, JNE, JGT, JLT, JLE, JGE, JC, JNC,
         
         PRINT_I32, PRINT_U32, PRINT_I64, PRINT_U64, PRINT_F32, PRINT_F64,
