@@ -13,5 +13,7 @@ int main(int argc, char **argv) {
     auto code = load_bytecode(file);
     VM vm(code);
     vm.exec();
+    auto status = vm.return_value();
+    std::cout<<"process exited with value "<<status<<std::endl;
     return 0;
 }

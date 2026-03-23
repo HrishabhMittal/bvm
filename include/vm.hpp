@@ -37,6 +37,8 @@ inline bool takes_operand(OPCODE op) {
     case OPCODE::JGT:
     case OPCODE::JLE:
     case OPCODE::JGE:
+    case OPCODE::JC:
+    case OPCODE::JNC:
         return true;
     default:
         return false;
@@ -145,9 +147,7 @@ class VM {
                 push(access_variable(i.operands[0]));
                 break;
             case OPCODE::STORE:
-                std::cout << "here" << std::endl;
                 access_variable(i.operands[0]) = pop();
-                std::cout << "here" << std::endl;
                 break;
             // case OPCODE::ALLOCA: {
             //     size_t size_in_bytes=pop().u64;
