@@ -822,13 +822,13 @@ class VM {
             // update: nvm they seem kinda permanent
             case OPCODE::PE: {
                 Value r;
-                r.u64 = cmp_flags[E] ? 0 : 1;
+                r.u64 = cmp_flags[E] ? 1 : 0;
                 push(r);
                 break;
             }
             case OPCODE::PNE: {
                 Value r;
-                r.u64 = cmp_flags[E] ? 1 : 0;
+                r.u64 = cmp_flags[E] ? 0 : 1;
                 push(r);
                 break;
             }
