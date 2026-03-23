@@ -64,7 +64,7 @@ namespace bvm {
         F32_TO_F64,
         F64_TO_F32,
        
-        JMP, JE, JNE, JGT, JLT, JLE, JGE,
+        JMP, JE, JNE, JGT, JLT, JLE, JGE, JC, JNC,
         
         PRINT_I32, PRINT_U32, PRINT_I64, PRINT_U64, PRINT_F32, PRINT_F64,
     

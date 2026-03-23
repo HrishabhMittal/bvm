@@ -773,6 +773,21 @@ namespace bvm {
                         push(r);
                         break;
                     }
+
+
+                    // kinda temporary instructions, ill fix later hehe
+                    case OPCODE::JC: {
+                        bool jmp=pop().u64;
+                        if (jmp) instruction_ptr=i.operands[0];
+                        break;
+                    }
+                    case OPCODE::JNC: {
+                        bool jmp=pop().u64;
+                        if (!jmp) instruction_ptr=i.operands[0];
+                        break;
+                    }
+
+
                     case OPCODE::JMP:
                         instruction_ptr=i.operands[0];
                         break;
