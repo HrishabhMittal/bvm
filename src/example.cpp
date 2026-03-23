@@ -2,6 +2,7 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
+using namespace bvm;
 int main(int argc,char**argv) {
     if (argc!=2) {
         std::cout<<"provide file to dump example to"<<std::endl;
