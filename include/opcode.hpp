@@ -9,7 +9,8 @@ enum class OPCODE : uint8_t {
     PUSH, POP,
     DUP, SWAP, OVER,
     CALL, RET,
-   
+
+//    ALLOCA,
     MALLOC, FREE,
     LOAD, STORE,
    

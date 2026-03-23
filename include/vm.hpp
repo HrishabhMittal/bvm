@@ -58,17 +58,26 @@ class VM {
         stack.pop_back();
         return val;
     }
-    inline Value access_from_top(size_t ind) {
+    inline Value& access_from_top(size_t ind) {
         if (ind>=stack.size()) throw std::runtime_error("Negative stack index");
         ind=stack.size()-1-ind;
         return stack[ind];
+    }
+    inline Value& access_variable(size_t ind) {
+        if (ind>=stack.size()) {
+            size_t cursize=stack.size();
+            size_t oldsize=cursize;
+            while (cursize<ind) cursize*=2;
+            stack.resize(cursize);
+        }
+        return variables[ind];
     }
 public:
     VM(const std::vector<instruction>& ins) : instructions(ins) {
         stack.reserve(8192);
         call_stack.reserve(1024);
         variables.resize(256);
-        for(auto& v : variables) v.u64=0;
+        for(auto& v:variables) v.u64=0;
     }
     void exec() {
         while (instruction_ptr < instructions.size()) {
@@ -115,11 +124,21 @@ public:
                     call_stack.pop_back();
                     break;
                 case OPCODE::LOAD:
-                    push(variables[i.operands[0]]);
+                    push(access_variable(i.operands[0]));
                     break;
                 case OPCODE::STORE:
-                    variables[i.operands[0]]=pop();
+                    access_variable(i.operands[0])=pop();
                     break;
+                // case OPCODE::ALLOCA: {
+                //     size_t size_in_bytes=pop().u64;
+                //     Value v;
+                //     size_t old_size=stack.size();
+                //     stack.insert(stack.end(),size_in_bytes,{});
+                //
+                //     might cause a dangling pointer if stack is reallocated, figure out a better way
+                //     v.ptr=&stack[old_size];
+                //     push(v);
+                // }
                 case OPCODE::MALLOC: {
                     auto size_in_bytes=pop().u64;
                     uint8_t* ptr=new uint8_t[size_in_bytes]();
