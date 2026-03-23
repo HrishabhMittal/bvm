@@ -42,7 +42,9 @@ namespace bvm {
        
         I32_SHR, U32_SHR,
         I64_SHR, U64_SHR,
-       
+
+        PUSH_CMP,
+
         I32_CMP, U32_CMP,
         I64_CMP, U64_CMP,
         F32_CMP, F64_CMP,

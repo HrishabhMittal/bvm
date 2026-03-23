@@ -6,6 +6,11 @@
 #include <iostream>
 #include "opcode.hpp"
 namespace bvm {
+    enum {
+        GT=0,
+        E,
+        LT
+    };
     struct instruction {
         OPCODE op;
         uint64_t operands[1];
@@ -554,6 +559,10 @@ namespace bvm {
                         push(r);
                         break;
                     }
+                    case OPCODE::PUSH_CMP: {
+                        Value r;
+                        r.u64=0|(cmp_flags[0]<<E)|(cmp_flags[1]<<LT)|(cmp_flags[2]<<GT);
+                    }
                     case OPCODE::I32_CMP: {
                         Value b=pop();
                         Value a=pop();
@@ -786,8 +795,6 @@ namespace bvm {
                         if (!jmp) instruction_ptr=i.operands[0];
                         break;
                     }
-
-
                     case OPCODE::JMP:
                         instruction_ptr=i.operands[0];
                         break;
