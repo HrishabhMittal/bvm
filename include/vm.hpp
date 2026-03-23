@@ -65,10 +65,13 @@ class VM {
         return stack[ind];
     }
     inline Value &access_variable(size_t ind) {
-        if (ind >= stack.size()) {
-            size_t cursize = stack.size();
+        if (ind >= variables.size()) {
+            size_t cursize = variables.size();
+            if (cursize == 0) {
+                cursize = 256;
+            }
             size_t oldsize = cursize;
-            while (cursize < ind)
+            while (cursize <= ind)
                 cursize *= 2;
             stack.resize(cursize);
         }
@@ -83,13 +86,22 @@ class VM {
         for (auto &v : variables)
             v.u64 = 0;
     }
+    int64_t return_value() {
+        if (stack.size() == 0)
+            return 0;
+        else if (stack.size() == 1)
+            return stack.back().i64;
+        else
+            throw std::runtime_error("program didn't exit properly");
+    }
     void exec() {
         while (instruction_ptr < instructions.size()) {
             instruction i = instructions[instruction_ptr++];
-            //            std::cout<<i.op<<" [Stack Size:
-            //            "<<stack.size()<<"]\n"; std::cout<<"["; for (auto
-            //            i:stack) std::cout<<i.u64<<", ";
-            //            std::cout<<"]"<<std::endl;
+            // std::cout << i.op << " [Stack Size:" << stack.size() << "]\n";
+            // std::cout << "[";
+            // for (auto i : stack)
+            //     std::cout << i.u64 << ", ";
+            // std::cout << "]" << std::endl;
             switch (i.op) {
             case OPCODE::END_GEN_ENUM_NAMES:
             case OPCODE::NOP:
@@ -133,7 +145,9 @@ class VM {
                 push(access_variable(i.operands[0]));
                 break;
             case OPCODE::STORE:
+                std::cout << "here" << std::endl;
                 access_variable(i.operands[0]) = pop();
+                std::cout << "here" << std::endl;
                 break;
             // case OPCODE::ALLOCA: {
             //     size_t size_in_bytes=pop().u64;
@@ -809,31 +823,37 @@ class VM {
             case OPCODE::PE: {
                 Value r;
                 r.u64 = cmp_flags[E] ? 0 : 1;
+                push(r);
                 break;
             }
             case OPCODE::PNE: {
                 Value r;
                 r.u64 = cmp_flags[E] ? 1 : 0;
+                push(r);
                 break;
             }
             case OPCODE::PLT: {
                 Value r;
                 r.u64 = cmp_flags[LT] ? 1 : 0;
+                push(r);
                 break;
             }
             case OPCODE::PGT: {
                 Value r;
                 r.u64 = cmp_flags[GT] ? 1 : 0;
+                push(r);
                 break;
             }
             case OPCODE::PLE: {
                 Value r;
                 r.u64 = (cmp_flags[LT] || cmp_flags[E]) ? 1 : 0;
+                push(r);
                 break;
             }
             case OPCODE::PGE: {
                 Value r;
                 r.u64 = (cmp_flags[GT] || cmp_flags[E]) ? 1 : 0;
+                push(r);
                 break;
             }
             case OPCODE::JC: {
