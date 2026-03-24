@@ -14,6 +14,8 @@ enum class OPCODE : uint8_t {
     OVER,
     CALL,
     RET,
+    DECLARE,
+    UNDECLARE,
 
     //    ALLOCA,
     MALLOC,
@@ -144,15 +146,12 @@ template <auto op> constexpr std::string_view enum_name_const() {
     auto len = end - start;
     return sv.substr(start, len);
 }
-template <std::size_t... Is>
-constexpr auto generate_enum_names(std::index_sequence<Is...>) {
-    return std::array<std::string_view, sizeof...(Is)>{
-        enum_name_const<static_cast<OPCODE>(Is)>()...};
+template <std::size_t... Is> constexpr auto generate_enum_names(std::index_sequence<Is...>) {
+    return std::array<std::string_view, sizeof...(Is)>{enum_name_const<static_cast<OPCODE>(Is)>()...};
 }
 inline std::string_view enum_name(OPCODE op) {
     static constexpr auto names =
-        generate_enum_names(std::make_index_sequence<static_cast<size_t>(
-                                OPCODE::END_GEN_ENUM_NAMES)>{});
+        generate_enum_names(std::make_index_sequence<static_cast<size_t>(OPCODE::END_GEN_ENUM_NAMES)>{});
     return names[static_cast<std::size_t>(op)];
 }
 template <typename T> constexpr std::string_view type_name() {

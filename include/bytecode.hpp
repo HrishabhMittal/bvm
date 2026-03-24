@@ -19,15 +19,13 @@ inline std::vector<instruction> load_bytecode(std::ifstream &in) {
     }
     return out;
 }
-inline void dump_bytecode(const std::vector<instruction> &ins,
-                          std::ofstream &out) {
+inline void dump_bytecode(const std::vector<instruction> &ins, std::ofstream &out) {
     uint64_t size = ins.size();
     out.write(reinterpret_cast<const char *>(&size), sizeof(size));
     for (auto &i : ins) {
         out.write(reinterpret_cast<const char *>(&i.op), sizeof(i.op));
         if (takes_operand(i.op)) {
-            out.write(reinterpret_cast<const char *>(i.operands),
-                      sizeof(i.operands));
+            out.write(reinterpret_cast<const char *>(i.operands), sizeof(i.operands));
         }
     }
 }

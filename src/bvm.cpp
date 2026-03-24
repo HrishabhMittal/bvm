@@ -14,6 +14,6 @@ int main(int argc, char **argv) {
     VM vm(code);
     vm.exec();
     auto status = vm.return_value();
-    std::cout<<"process exited with value "<<status<<std::endl;
+    std::cout << "process exited with value " << status << std::endl;
     return 0;
 }

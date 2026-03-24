@@ -1,5 +1,6 @@
 #include "bytecode.hpp"
 #include "vm.hpp"
+#include <bit>
 #include <bvm.hpp>
 #include <fstream>
 #include <ios>
@@ -14,7 +15,7 @@ int main(int argc, char **argv) {
     for (auto i : v) {
         std::cout << num << ": " << i.op;
         if (bvm::takes_operand(i.op)) {
-            std::cout << ' ' << i.operands[0];
+            std::cout << ' ' << std::bit_cast<int64_t>(i.operands[0]);
         }
         std::cout << std::endl;
         num++;

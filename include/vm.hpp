@@ -1,5 +1,6 @@
 #pragma once
 #include "opcode.hpp"
+#include <bit>
 #include <cstdint>
 #include <iostream>
 #include <ostream>
@@ -39,6 +40,7 @@ inline bool takes_operand(OPCODE op) {
     case OPCODE::JGE:
     case OPCODE::JC:
     case OPCODE::JNC:
+    case OPCODE::UNDECLARE:
         return true;
     default:
         return false;
@@ -49,7 +51,7 @@ class VM {
     std::vector<int64_t> call_stack;
     std::vector<Value> variables;
     std::vector<instruction> instructions;
-    int64_t instruction_ptr = 0;
+    uint64_t instruction_ptr = 0;
     uint8_t cmp_flags[3] = {0};
     inline void push(Value val) { stack.push_back(val); }
     inline Value pop() {
@@ -66,7 +68,11 @@ class VM {
         ind = stack.size() - 1 - ind;
         return stack[ind];
     }
-    inline Value &access_variable(size_t ind) {
+    inline Value &access_variable(int64_t ind) {
+        // my new idea i wanna test out, lets me access variables relative to
+        // the stack without using new instructions
+        while (ind < 0)
+            ind += variables.size();
         if (ind >= variables.size()) {
             size_t cursize = variables.size();
             if (cursize == 0) {
@@ -84,9 +90,7 @@ class VM {
     VM(const std::vector<instruction> &ins) : instructions(ins) {
         stack.reserve(8192);
         call_stack.reserve(1024);
-        variables.resize(256);
-        for (auto &v : variables)
-            v.u64 = 0;
+        variables.reserve(256);
     }
     int64_t return_value() {
         if (stack.size() == 0)
@@ -143,8 +147,19 @@ class VM {
                 instruction_ptr = call_stack.back();
                 call_stack.pop_back();
                 break;
+            case OPCODE::DECLARE: {
+                Value v;
+                v.u64 = 0;
+                variables.push_back(v);
+                break;
+            }
+            case OPCODE::UNDECLARE: {
+                const uint64_t num = variables.size() - i.operands[0];
+                variables.resize(num);
+                break;
+            }
             case OPCODE::LOAD:
-                push(access_variable(i.operands[0]));
+                push(access_variable(std::bit_cast<int64_t>(i.operands[0])));
                 break;
             case OPCODE::STORE:
                 access_variable(i.operands[0]) = pop();
@@ -229,15 +244,13 @@ class VM {
             case OPCODE::I8_ASTORE: {
                 auto val = pop();
                 auto index = pop().u64;
-                reinterpret_cast<int8_t *>(pop().ptr)[index] =
-                    static_cast<int8_t>(val.i32);
+                reinterpret_cast<int8_t *>(pop().ptr)[index] = static_cast<int8_t>(val.i32);
                 break;
             }
             case OPCODE::I16_ASTORE: {
                 auto val = pop();
                 auto index = pop().u64;
-                reinterpret_cast<int16_t *>(pop().ptr)[index] =
-                    static_cast<int16_t>(val.i32);
+                reinterpret_cast<int16_t *>(pop().ptr)[index] = static_cast<int16_t>(val.i32);
                 break;
             }
             case OPCODE::I32_ASTORE: {
