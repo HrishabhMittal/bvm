@@ -12,6 +12,11 @@ struct instruction {
     OPCODE op;
     uint64_t operands[1];
 };
+struct program {
+    std::string header;
+    std::vector<instruction> code;
+    std::string data;
+};
 inline std::ostream &operator<<(std::ostream &out, const OPCODE &i) {
     out << enum_name(i);
     return out;
@@ -50,7 +55,7 @@ class VM {
     std::vector<Value> stack;
     std::vector<int64_t> call_stack;
     std::vector<Value> variables;
-    std::vector<instruction> instructions;
+    program prog;
     uint64_t instruction_ptr = 0;
     uint8_t cmp_flags[3] = {0};
     inline void push(Value val) { stack.push_back(val); }
@@ -87,7 +92,7 @@ class VM {
     }
 
   public:
-    VM(const std::vector<instruction> &ins) : instructions(ins) {
+    VM(const program& p) : prog(p) {
         stack.reserve(8192);
         call_stack.reserve(1024);
         variables.reserve(256);
@@ -101,8 +106,8 @@ class VM {
             throw std::runtime_error("program didn't exit properly");
     }
     void exec() {
-        while (instruction_ptr < instructions.size()) {
-            instruction i = instructions[instruction_ptr++];
+        while (instruction_ptr < prog.code.size()) {
+            instruction i = prog.code[instruction_ptr++];
             // std::cout << i.op << " [Stack Size:" << stack.size() << "]\n";
             // std::cout << "[";
             // for (auto i : stack)
