@@ -132,6 +132,12 @@ class VM {
                 push(v);
                 break;
             }
+            case OPCODE::BOOL_NOT: {
+                Value v=pop();
+                v.u64=!((bool)v.u64);
+                push(v);
+                break;
+            }
             case OPCODE::POP:
                 pop();
                 break;
