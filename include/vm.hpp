@@ -5,6 +5,7 @@
 #include <iostream>
 #include <ostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 namespace bvm {
 enum { GT = 0, E, LT };
@@ -46,11 +47,16 @@ inline bool takes_operand(OPCODE op) {
     case OPCODE::JC:
     case OPCODE::JNC:
     case OPCODE::UNDECLARE:
+    case OPCODE::STRING_FROM:
         return true;
     default:
         return false;
     }
 }
+
+// one thing that i do have to think about is how to structure instruction
+// so if i wanted to i coudl make every instruction except PUSH use a stack instead of loading from an operands
+// maybe this will be more clear, maybe not ill have to think about whether i want to restructure this or not
 class VM {
     std::vector<Value> stack;
     std::vector<int64_t> call_stack;
@@ -76,6 +82,7 @@ class VM {
     inline Value &access_variable(int64_t ind) {
         // my new idea i wanna test out, lets me access variables relative to
         // the stack without using new instructions
+        // ME FROM FUTURE: works absolutely flawlessly btw, im just an absolute genius
         while (ind < 0)
             ind += variables.size();
         if (ind >= variables.size()) {
@@ -92,7 +99,7 @@ class VM {
     }
 
   public:
-    VM(const program& p) : prog(p) {
+    VM(const program &p) : prog(p) {
         stack.reserve(8192);
         call_stack.reserve(1024);
         variables.reserve(256);
@@ -183,6 +190,15 @@ class VM {
                 uint8_t *ptr = new uint8_t[size_in_bytes]();
                 Value v;
                 v.ptr = ptr;
+                push(v);
+                break;
+            }
+            case OPCODE::STRING_FROM: {
+                uint64_t *str = new uint64_t[2];
+                str[0] = reinterpret_cast<uint64_t>(&prog.data[i.operands[0]]);
+                str[1] = pop().u64;
+                Value v;
+                v.ptr = str;
                 push(v);
                 break;
             }
@@ -931,6 +947,15 @@ class VM {
             case OPCODE::PRINT_I64:
                 std::cout << pop().i64 << std::endl;
                 break;
+            case OPCODE::PRINT_STRING: {
+                uint64_t *str = reinterpret_cast<uint64_t *>(pop().ptr);
+                char *ptr = reinterpret_cast<char *>(str[0]);
+                uint64_t len = str[1];
+                for (uint64_t i = 0; i < len; i++) {
+                    std::cout << str[i] << std::endl;
+                }
+                break;
+            }
             }
         }
     }

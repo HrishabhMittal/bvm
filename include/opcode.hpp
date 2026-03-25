@@ -22,6 +22,8 @@ enum class OPCODE : uint8_t {
     FREE,
     LOAD,
     STORE,
+    
+    STRING_FROM,
 
     I8_ALOAD,
     U8_ALOAD,
@@ -136,6 +138,7 @@ enum class OPCODE : uint8_t {
     PRINT_U64,
     PRINT_F32,
     PRINT_F64,
+    PRINT_STRING,
 
     END_GEN_ENUM_NAMES
 };
