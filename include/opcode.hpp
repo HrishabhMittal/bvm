@@ -13,6 +13,7 @@ enum class OPCODE : uint8_t {
     SWAP,
     OVER,
     CALL,
+    CALL_EXTERN,
     RET,
     DECLARE,
     UNDECLARE,

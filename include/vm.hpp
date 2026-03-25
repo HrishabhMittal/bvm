@@ -3,6 +3,7 @@
 #include <bit>
 #include <cstdint>
 #include <iostream>
+#include <map>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -15,6 +16,8 @@ struct instruction {
 };
 struct program {
     std::string header;
+    std::map<std::string, uint64_t> exported_functions;
+    std::map<std::string, uint64_t> exported_globals;
     std::vector<instruction> code;
     std::string data;
 };
@@ -35,6 +38,7 @@ inline bool takes_operand(OPCODE op) {
     switch (op) {
     case OPCODE::PUSH:
     case OPCODE::CALL:
+    case OPCODE::CALL_EXTERN:
     case OPCODE::LOAD:
     case OPCODE::STORE:
     case OPCODE::JMP:
@@ -59,11 +63,15 @@ inline bool takes_operand(OPCODE op) {
 // maybe this will be more clear, maybe not ill have to think about whether i want to restructure this or not
 class VM {
     std::vector<Value> stack;
-    std::vector<int64_t> call_stack;
     std::vector<Value> variables;
     program prog;
     uint64_t instruction_ptr = 0;
     uint8_t cmp_flags[3] = {0};
+    std::map<std::string, std::pair<size_t, uint64_t>> global_linker_table;
+    std::vector<bvm::program> loaded_modules;
+
+    size_t current_module = 0; // The active binary
+    std::vector<std::pair<size_t, uint64_t>> call_stack;
     inline void push(Value val) { stack.push_back(val); }
     inline Value pop() {
         if (stack.empty()) {
@@ -83,6 +91,7 @@ class VM {
         // my new idea i wanna test out, lets me access variables relative to
         // the stack without using new instructions
         // ME FROM FUTURE: works absolutely flawlessly btw, im just an absolute genius
+        // ME FROM EVEN MORE FUTURE: works flawlessly but u buffoon you resized the wrong stack, i fixed it
         while (ind < 0)
             ind += variables.size();
         if (ind >= variables.size()) {
@@ -93,7 +102,7 @@ class VM {
             size_t oldsize = cursize;
             while (cursize <= ind)
                 cursize *= 2;
-            stack.resize(cursize);
+            variables.resize(cursize);
         }
         return variables[ind];
     }
@@ -103,6 +112,7 @@ class VM {
         stack.reserve(8192);
         call_stack.reserve(1024);
         variables.reserve(256);
+        loaded_modules.push_back(p);
     }
     int64_t return_value() {
         if (stack.size() == 0)
@@ -133,8 +143,8 @@ class VM {
                 break;
             }
             case OPCODE::BOOL_NOT: {
-                Value v=pop();
-                v.u64=!((bool)v.u64);
+                Value v = pop();
+                v.u64 = !v.u64;
                 push(v);
                 break;
             }
@@ -155,16 +165,40 @@ class VM {
                 push(access_from_top(1));
                 break;
             }
-            case OPCODE::CALL:
-                call_stack.push_back(instruction_ptr);
+            case OPCODE::CALL: {
+                call_stack.push_back({current_module, instruction_ptr});
                 instruction_ptr = i.operands[0];
                 break;
-            case OPCODE::RET:
-                if (call_stack.empty())
-                    throw std::runtime_error("Call stack underflow!");
-                instruction_ptr = call_stack.back();
-                call_stack.pop_back();
+            }
+            case OPCODE::CALL_EXTERN: {
+
+                uint64_t str_ptr = i.operands[0];
+
+                std::string target_func = "";
+
+                const std::string& data_sec = loaded_modules[current_module].data;
+                while (str_ptr < data_sec.size() && data_sec[str_ptr] != '\0') {
+                    target_func += data_sec[str_ptr++];
+                }
+                if (!global_linker_table.count(target_func)) {
+                    throw std::runtime_error("Linker Error: Undefined external reference to " + target_func);
+                }
+
+                auto location = global_linker_table[target_func];
+                call_stack.push_back({current_module, instruction_ptr});
+                current_module = location.first;
+                instruction_ptr = location.second;
                 break;
+            }
+            case OPCODE::RET: {
+                if (call_stack.empty())
+                    return;
+                auto context = call_stack.back();
+                call_stack.pop_back();
+                current_module = context.first;
+                instruction_ptr = context.second;
+                break;
+            }
             case OPCODE::DECLARE: {
                 Value v;
                 v.u64 = 0;
@@ -201,7 +235,8 @@ class VM {
             }
             case OPCODE::STRING_FROM: {
                 uint64_t *str = new uint64_t[2];
-                str[0] = reinterpret_cast<uint64_t>(&prog.data[i.operands[0]]);
+                // str[0] = reinterpret_cast<uint64_t>(&prog.data[i.operands[0]]);
+                str[0] = reinterpret_cast<uint64_t>(&loaded_modules[current_module].data[i.operands[0]]);
                 str[1] = pop().u64;
                 Value v;
                 v.ptr = str;
