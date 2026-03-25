@@ -22,7 +22,7 @@ enum class OPCODE : uint8_t {
     FREE,
     LOAD,
     STORE,
-    
+
     STRING_FROM,
 
     I8_ALOAD,
@@ -145,7 +145,14 @@ enum class OPCODE : uint8_t {
 template <auto op> constexpr std::string_view enum_name_const() {
     std::string_view sv = __PRETTY_FUNCTION__;
     auto start = sv.find('=') + 2;
-    auto end = sv.find(';');
+    auto end = sv.find(';', start);
+    if (end == std::string_view::npos) {
+        end = sv.find(']', start);
+    }
+    auto last_colon = sv.rfind("::", end);
+    if (last_colon != std::string_view::npos && last_colon >= start) {
+        start = last_colon + 2;
+    }
     auto len = end - start;
     return sv.substr(start, len);
 }
