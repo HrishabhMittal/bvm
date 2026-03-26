@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
     add_print_func("printi64", OPCODE::PRINT_I64);
     add_print_func("printf32", OPCODE::PRINT_F32);
     add_print_func("printf64", OPCODE::PRINT_F64);
-    add_print_func("printgstring", OPCODE::PRINT_STRING);
+    add_print_func("printstring", OPCODE::PRINT_STRING);
 
     std::ofstream out("print", std::ios::binary);
     dump_bytecode(stdlib, out);

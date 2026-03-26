@@ -5,6 +5,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <string_view>
 namespace bvm {
 inline void write_string(const std::string &str, std::ofstream &out) {
     uint64_t size = str.size();
