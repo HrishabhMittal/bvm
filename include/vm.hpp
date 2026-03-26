@@ -114,6 +114,13 @@ class VM {
         variables.reserve(256);
         loaded_modules.push_back(p);
     }
+    void load_module(const program &p) {
+        size_t index = loaded_modules.size();
+        loaded_modules.push_back(p);
+        for (const auto &[name, ip] : p.exported_functions) {
+            global_linker_table[name] = {index, ip};
+        }
+    }
     int64_t return_value() {
         if (stack.size() == 0)
             return 0;
@@ -123,8 +130,8 @@ class VM {
             throw std::runtime_error("program didn't exit properly");
     }
     void exec() {
-        while (instruction_ptr < prog.code.size()) {
-            instruction i = prog.code[instruction_ptr++];
+        while (current_module < loaded_modules.size() && instruction_ptr < loaded_modules[current_module].code.size()) {
+            instruction i = loaded_modules[current_module].code[instruction_ptr++];
             // std::cout << i.op << " [Stack Size:" << stack.size() << "]\n";
             // std::cout << "[";
             // for (auto i : stack)
@@ -176,7 +183,7 @@ class VM {
 
                 std::string target_func = "";
 
-                const std::string& data_sec = loaded_modules[current_module].data;
+                const std::string &data_sec = loaded_modules[current_module].data;
                 while (str_ptr < data_sec.size() && data_sec[str_ptr] != '\0') {
                     target_func += data_sec[str_ptr++];
                 }
@@ -992,9 +999,7 @@ class VM {
                 uint64_t *str = reinterpret_cast<uint64_t *>(pop().ptr);
                 char *ptr = reinterpret_cast<char *>(str[0]);
                 uint64_t len = str[1];
-                for (uint64_t i = 0; i < len; i++) {
-                    std::cout << str[i] << std::endl;
-                }
+                std::cout << std::string_view(ptr, len) << std::endl;
                 break;
             }
             }
