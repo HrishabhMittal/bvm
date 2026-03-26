@@ -978,28 +978,28 @@ class VM {
                     instruction_ptr = i.operands[0];
                 break;
             case OPCODE::PRINT_U32:
-                std::cout << pop().u32 << std::endl;
+                std::cout << pop().u32;
                 break;
             case OPCODE::PRINT_U64:
-                std::cout << pop().u64 << std::endl;
+                std::cout << pop().u64;
                 break;
             case OPCODE::PRINT_F64:
-                std::cout << pop().f64 << std::endl;
+                std::cout << pop().f64;
                 break;
             case OPCODE::PRINT_I32:
-                std::cout << pop().i32 << std::endl;
+                std::cout << pop().i32;
                 break;
             case OPCODE::PRINT_F32:
-                std::cout << pop().f32 << std::endl;
+                std::cout << pop().f32;
                 break;
             case OPCODE::PRINT_I64:
-                std::cout << pop().i64 << std::endl;
+                std::cout << pop().i64;
                 break;
             case OPCODE::PRINT_STRING: {
                 uint64_t *str = reinterpret_cast<uint64_t *>(pop().ptr);
                 char *ptr = reinterpret_cast<char *>(str[0]);
                 uint64_t len = str[1];
-                std::cout << std::string_view(ptr, len) << std::endl;
+                std::cout << std::string_view(ptr, len);
                 break;
             }
             }
