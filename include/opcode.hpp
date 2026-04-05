@@ -20,7 +20,10 @@ enum class OPCODE : uint8_t {
 
     //    ALLOCA,
     MALLOC,
-    FREE,
+    DEF_STRUCT,
+    PTR_AT,
+    END_STRUCT,
+
     LOAD,
     STORE,
 

@@ -63,6 +63,8 @@ inline bool takes_operand(OPCODE op) {
 // maybe this will be more clear, maybe not ill have to think about whether i want to restructure this or not
 class VM {
     std::vector<Value> stack;
+    std::vector<std::vector<size_t>> struct_offsets;
+    bool defining_struct = false;
     std::vector<Value> variables;
     program prog;
     uint64_t instruction_ptr = 0;
@@ -240,18 +242,27 @@ class VM {
                 push(v);
                 break;
             }
+            case OPCODE::DEF_STRUCT: {
+                defining_struct = true;
+                struct_offsets.push_back({});
+            }
+            case OPCODE::PTR_AT: {
+                if (defining_struct)
+                    struct_offsets.back().push_back(i.operands[0]);
+                else
+                    throw std::runtime_error("PTR_AT found outside struct definition.");
+            }
+            case OPCODE::END_STRUCT: {
+                defining_struct = false;
+            }
             case OPCODE::STRING_FROM: {
+                // todo: remove this, replace with something better
                 uint64_t *str = new uint64_t[2];
-                // str[0] = reinterpret_cast<uint64_t>(&prog.data[i.operands[0]]);
                 str[0] = reinterpret_cast<uint64_t>(&loaded_modules[current_module].data[i.operands[0]]);
                 str[1] = pop().u64;
                 Value v;
                 v.ptr = str;
                 push(v);
-                break;
-            }
-            case OPCODE::FREE: {
-                delete[] reinterpret_cast<uint8_t *>(pop().ptr);
                 break;
             }
             case OPCODE::I8_ALOAD: {
@@ -996,6 +1007,7 @@ class VM {
                 std::cout << pop().i64;
                 break;
             case OPCODE::PRINT_STRING: {
+                // todo: remove this for something better (THINK MARK THINK)
                 uint64_t *str = reinterpret_cast<uint64_t *>(pop().ptr);
                 char *ptr = reinterpret_cast<char *>(str[0]);
                 uint64_t len = str[1];
