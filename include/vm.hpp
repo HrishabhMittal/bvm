@@ -1,11 +1,11 @@
 #pragma once
+#include "gc.hpp"
 #include "opcode.hpp"
 #include <bit>
 #include <cstdint>
 #include <iostream>
 #include <map>
 #include <ostream>
-#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -26,15 +26,6 @@ inline std::ostream &operator<<(std::ostream &out, const OPCODE &i) {
     out << enum_name(i);
     return out;
 }
-union Value {
-    uint64_t u64;
-    int64_t i64;
-    uint32_t u32;
-    int32_t i32;
-    double f64;
-    float f32;
-    void *ptr;
-};
 inline bool takes_operand(OPCODE op) {
     switch (op) {
     case OPCODE::PUSH:
@@ -66,10 +57,7 @@ inline bool takes_operand(OPCODE op) {
 // so if i wanted to i coudl make every instruction except PUSH use a stack instead of loading from an operands
 // maybe this will be more clear, maybe not ill have to think about whether i want to restructure this or not
 class VM {
-    std::vector<bool> stack_ptrs, variable_ptrs;
-    std::vector<Value> stack, variables;
-    std::vector<std::vector<size_t>> struct_offsets;
-    std::vector<size_t> struct_len;
+    GC gc;
     bool defining_struct = false;
     program prog;
     uint64_t instruction_ptr = 0;
@@ -80,24 +68,24 @@ class VM {
     size_t current_module = 0; // The active binary
     std::vector<std::pair<size_t, uint64_t>> call_stack;
     inline void push(Value val, bool is_ptr = false) {
-        stack.push_back(val);
-        stack_ptrs.push_back(is_ptr);
+        gc.stack.push_back(val);
+        gc.stack_ptrs.push_back(is_ptr);
     }
     inline std::pair<Value, bool> pop() {
-        if (stack.empty()) {
+        if (gc.stack.empty()) {
             throw std::runtime_error("Stack underflow!");
         }
-        Value val = stack.back();
-        bool is_ptr = stack_ptrs.back();
-        stack.pop_back();
-        stack_ptrs.pop_back();
+        Value val = gc.stack.back();
+        bool is_ptr = gc.stack_ptrs.back();
+        gc.stack.pop_back();
+        gc.stack_ptrs.pop_back();
         return {val, is_ptr};
     }
     inline Value &access_from_top(size_t ind) {
-        if (ind >= stack.size())
+        if (ind >= gc.stack.size())
             throw std::runtime_error("Negative stack index");
-        ind = stack.size() - 1 - ind;
-        return stack[ind];
+        ind = gc.stack.size() - 1 - ind;
+        return gc.stack[ind];
     }
     inline Value &access_variable(int64_t ind) {
         // my new idea i wanna test out, lets me access variables relative to
@@ -105,44 +93,44 @@ class VM {
         // ME FROM FUTURE: works absolutely flawlessly btw, im just an absolute genius
         // ME FROM EVEN MORE FUTURE: works flawlessly but u buffoon you resized the wrong stack, i fixed it
         while (ind < 0)
-            ind += variables.size();
-        if (ind >= variables.size()) {
-            size_t cursize = variables.size();
+            ind += gc.variables.size();
+        if (ind >= gc.variables.size()) {
+            size_t cursize = gc.variables.size();
             if (cursize == 0) {
                 cursize = 256;
             }
             size_t oldsize = cursize;
             while (cursize <= ind)
                 cursize *= 2;
-            variable_ptrs.resize(cursize);
-            variables.resize(cursize);
+            gc.variable_ptrs.resize(cursize);
+            gc.variables.resize(cursize);
         }
-        return variables[ind];
+        return gc.variables[ind];
     }
     inline int64_t access_ptr_bool(int64_t ind) {
         while (ind < 0)
-            ind += variables.size();
-        if (ind >= variables.size()) {
-            size_t cursize = variables.size();
+            ind += gc.variables.size();
+        if (ind >= gc.variables.size()) {
+            size_t cursize = gc.variables.size();
             if (cursize == 0) {
                 cursize = 256;
             }
             size_t oldsize = cursize;
             while (cursize <= ind)
                 cursize *= 2;
-            variable_ptrs.resize(cursize);
-            variables.resize(cursize);
+            gc.variable_ptrs.resize(cursize);
+            gc.variables.resize(cursize);
         }
         return ind;
     }
 
   public:
     VM(const program &p) : prog(p) {
-        stack.reserve(8192);
-        stack_ptrs.reserve(8192);
+        gc.stack.reserve(8192);
+        gc.stack_ptrs.reserve(8192);
         call_stack.reserve(1024);
-        variables.reserve(256);
-        variable_ptrs.reserve(256);
+        gc.variables.reserve(256);
+        gc.variable_ptrs.reserve(256);
         loaded_modules.push_back(p);
     }
     void load_module(const program &p) {
@@ -153,10 +141,10 @@ class VM {
         }
     }
     int64_t return_value() {
-        if (stack.size() == 0)
+        if (gc.stack.size() == 0)
             return 0;
-        else if (stack.size() == 1)
-            return stack.back().i64;
+        else if (gc.stack.size() == 1)
+            return gc.stack.back().i64;
         else
             throw std::runtime_error("program didn't exit properly");
     }
@@ -194,9 +182,9 @@ class VM {
                 break;
             }
             case OPCODE::SWAP: {
-                if (stack.size() < 2)
+                if (gc.stack.size() < 2)
                     throw std::runtime_error("stack underflow");
-                std::swap(stack[stack.size() - 1], stack[stack.size() - 2]);
+                std::swap(gc.stack[gc.stack.size() - 1], gc.stack[gc.stack.size() - 2]);
                 break;
             }
             case OPCODE::OVER: {
@@ -240,12 +228,12 @@ class VM {
             case OPCODE::DECLARE: {
                 Value v;
                 v.u64 = 0;
-                variables.push_back(v);
+                gc.variables.push_back(v);
                 break;
             }
             case OPCODE::UNDECLARE: {
-                const uint64_t num = variables.size() - i.operands[0];
-                variables.resize(num);
+                const uint64_t num = gc.variables.size() - i.operands[0];
+                gc.variables.resize(num);
                 break;
             }
             case OPCODE::LOAD:
@@ -254,36 +242,24 @@ class VM {
             case OPCODE::STORE: {
                 auto x = pop();
                 access_variable(i.operands[0]) = x.first;
-                variable_ptrs[access_ptr_bool(i.operands[0])] = x.second;
+                gc.variable_ptrs[access_ptr_bool(i.operands[0])] = x.second;
                 break;
             }
-            // case OPCODE::ALLOCA: {
-            //     size_t size_in_bytes=pop().u64;
-            //     Value v;
-            //     size_t old_size=stack.size();
-            //     stack.insert(stack.end(),size_in_bytes,{});
-            //
-            //     might cause a dangling pointer if stack is reallocated,
-            //     figure out a better way v.ptr=&stack[old_size]; push(v);
-            // }
-            //
-            //
-            //
-            //
-            // todo: add headers to array or smth
             case OPCODE::MALLOC: {
-                auto size_in_bytes = pop().first.u64 + 8;
+                size_t size_in_bytes = pop().first.u64 + 8;
                 uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
-                ptr[0] = 0;
+                gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
+                ptr[0] = size_in_bytes << 1;
                 Value v;
                 v.ptr = &ptr[1];
                 push(v);
                 break;
             }
             case OPCODE::MALLOC_STRUCT: {
-                auto size_in_bytes = struct_len[i.operands[0]] + 8;
+                size_t size_in_bytes = gc.struct_len[i.operands[0]] + 8;
                 uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
-                ptr[0] = i.operands[0] + 1;
+                gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
+                ptr[0] = (i.operands[0] << 1) | 1;
                 Value v;
                 v.ptr = &ptr[1];
                 push(v);
@@ -291,12 +267,12 @@ class VM {
             }
             case OPCODE::DEF_STRUCT: {
                 defining_struct = true;
-                struct_offsets.push_back({});
+                gc.struct_offsets.push_back({});
                 break;
             }
             case OPCODE::PTR_AT: {
                 if (defining_struct)
-                    struct_offsets.back().push_back(i.operands[0]);
+                    gc.struct_offsets.back().push_back(i.operands[0]);
                 else
                     throw std::runtime_error("PTR_AT found outside struct definition.");
                 break;
@@ -305,7 +281,7 @@ class VM {
                 // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was
                 // added in END_STRUCT.
                 if (defining_struct)
-                    struct_len.push_back(i.operands[0]);
+                    gc.struct_len.push_back(i.operands[0]);
                 else
                     throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
                 break;
