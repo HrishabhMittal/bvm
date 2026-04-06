@@ -52,6 +52,9 @@ inline bool takes_operand(OPCODE op) {
     case OPCODE::JNC:
     case OPCODE::UNDECLARE:
     case OPCODE::STRING_FROM:
+    case OPCODE::STRUCT_SIZE:
+    case OPCODE::PTR_AT:
+    case OPCODE::MALLOC_STRUCT:
         return true;
     default:
         return false;
@@ -64,6 +67,7 @@ inline bool takes_operand(OPCODE op) {
 class VM {
     std::vector<Value> stack;
     std::vector<std::vector<size_t>> struct_offsets;
+    std::vector<size_t> struct_len;
     bool defining_struct = false;
     std::vector<Value> variables;
     program prog;
@@ -234,26 +238,52 @@ class VM {
             //     might cause a dangling pointer if stack is reallocated,
             //     figure out a better way v.ptr=&stack[old_size]; push(v);
             // }
+            //
+            //
+            //
+            //
+            // todo: add headers to array or smth
             case OPCODE::MALLOC: {
-                auto size_in_bytes = pop().u64;
-                uint8_t *ptr = new uint8_t[size_in_bytes]();
+                auto size_in_bytes = pop().u64+8;
+                uint64_t *ptr = reinterpret_cast<uint64_t*>(new uint8_t[size_in_bytes]());
+                ptr[0]=0;
                 Value v;
-                v.ptr = ptr;
+                v.ptr = &ptr[1];
+                push(v);
+                break;
+            }
+            case OPCODE::MALLOC_STRUCT: {
+                auto size_in_bytes = struct_len[i.operands[0]]+8;
+                uint64_t *ptr = reinterpret_cast<uint64_t*>(new uint8_t[size_in_bytes]());
+                ptr[0]=i.operands[0]+1;
+                Value v;
+                v.ptr = &ptr[1];
                 push(v);
                 break;
             }
             case OPCODE::DEF_STRUCT: {
                 defining_struct = true;
                 struct_offsets.push_back({});
+                break;
             }
             case OPCODE::PTR_AT: {
                 if (defining_struct)
                     struct_offsets.back().push_back(i.operands[0]);
                 else
                     throw std::runtime_error("PTR_AT found outside struct definition.");
+                break;
+            }
+            case OPCODE::STRUCT_SIZE: {
+                // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was added in END_STRUCT.
+                if (defining_struct)
+                    struct_len.push_back(i.operands[0]);
+                else
+                    throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
+                break;
             }
             case OPCODE::END_STRUCT: {
                 defining_struct = false;
+                break;
             }
             case OPCODE::STRING_FROM: {
                 // todo: remove this, replace with something better
