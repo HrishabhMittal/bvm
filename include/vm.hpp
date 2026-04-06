@@ -46,6 +46,7 @@ inline bool takes_operand(OPCODE op) {
     case OPCODE::STRING_FROM:
     case OPCODE::STRUCT_SIZE:
     case OPCODE::PTR_AT:
+    case OPCODE::MALLOC:
     case OPCODE::MALLOC_STRUCT:
         return true;
     default:
@@ -178,7 +179,7 @@ class VM {
                 pop();
                 break;
             case OPCODE::DUP: {
-                push(access_from_top(0));
+                push(access_from_top(0), gc.stack_ptrs[gc.stack_ptrs.size() - 1]);
                 break;
             }
             case OPCODE::SWAP: {
@@ -187,13 +188,13 @@ class VM {
                 std::swap(gc.stack[gc.stack.size() - 1], gc.stack[gc.stack.size() - 2]);
 
                 // bcoz ofc bitset doesnt implement shite
-                bool v = gc.stack_ptrs[gc.stack_ptrs.size()-1];
-                gc.stack_ptrs[gc.stack_ptrs.size()-1]=gc.stack_ptrs[gc.stack_ptrs.size()-2];
-                gc.stack_ptrs[gc.stack_ptrs.size()-2]=v;
+                bool v = gc.stack_ptrs[gc.stack_ptrs.size() - 1];
+                gc.stack_ptrs[gc.stack_ptrs.size() - 1] = gc.stack_ptrs[gc.stack_ptrs.size() - 2];
+                gc.stack_ptrs[gc.stack_ptrs.size() - 2] = v;
                 break;
             }
             case OPCODE::OVER: {
-                push(access_from_top(1));
+                push(access_from_top(1), gc.stack_ptrs[gc.stack_ptrs.size() - 2]);
                 break;
             }
             case OPCODE::CALL: {
@@ -243,33 +244,41 @@ class VM {
                 gc.variable_ptrs.resize(num);
                 break;
             }
-            case OPCODE::LOAD:
-                push(access_variable(std::bit_cast<int64_t>(i.operands[0])));
+            case OPCODE::LOAD: {
+                int64_t idx = std::bit_cast<int64_t>(i.operands[0]);
+                push(access_variable(idx), gc.variable_ptrs[access_ptr_bool(idx)]);
                 break;
+            }
             case OPCODE::STORE: {
                 auto x = pop();
                 access_variable(i.operands[0]) = x.first;
                 gc.variable_ptrs[access_ptr_bool(i.operands[0])] = x.second;
                 break;
             }
+            // okay i should prob document a lil
+            // metadata: 64 bits
+            // len: 61 bits | is_pointer_array: 1 bit | is_struct: 1 bit | mark_n_sweep: 1 bit
+            //                ^^^^^^^^^^^^^^^^^^^^^^^
+            //           "to scan or not to scan, that is the question" - Hrishabh Mittal
             case OPCODE::MALLOC: {
                 size_t size_in_bytes = pop().first.u64 + 8;
                 uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
                 gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
-                ptr[0] = size_in_bytes << 1;
+                uint64_t ptr_array = i.operands[0] ? 0b100 : 0;
+                ptr[0] = (size_in_bytes << 3) | ptr_array;
                 Value v;
                 v.ptr = &ptr[1];
-                push(v);
+                push(v, true);
                 break;
             }
             case OPCODE::MALLOC_STRUCT: {
                 size_t size_in_bytes = gc.struct_len[i.operands[0]] + 8;
                 uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
                 gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
-                ptr[0] = (i.operands[0] << 1) | 1;
+                ptr[0] = (i.operands[0] << 3) | 0b10;
                 Value v;
                 v.ptr = &ptr[1];
-                push(v);
+                push(v, true);
                 break;
             }
             case OPCODE::DEF_STRUCT: {
@@ -850,7 +859,7 @@ class VM {
                 Value a = pop().first;
                 Value r;
                 r.u64 = 0;
-                r.f64 = static_cast<float>(a.u64);
+                r.f64 = static_cast<double>(a.u64);
                 push(r);
                 break;
             }

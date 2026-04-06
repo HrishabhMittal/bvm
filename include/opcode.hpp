@@ -18,7 +18,6 @@ enum class OPCODE : uint8_t {
     DECLARE,
     UNDECLARE,
 
-    //    ALLOCA,
     MALLOC,
     MALLOC_STRUCT,
     DEF_STRUCT,
