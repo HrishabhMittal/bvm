@@ -185,6 +185,11 @@ class VM {
                 if (gc.stack.size() < 2)
                     throw std::runtime_error("stack underflow");
                 std::swap(gc.stack[gc.stack.size() - 1], gc.stack[gc.stack.size() - 2]);
+
+                // bcoz ofc bitset doesnt implement shite
+                bool v = gc.stack_ptrs[gc.stack_ptrs.size()-1];
+                gc.stack_ptrs[gc.stack_ptrs.size()-1]=gc.stack_ptrs[gc.stack_ptrs.size()-2];
+                gc.stack_ptrs[gc.stack_ptrs.size()-2]=v;
                 break;
             }
             case OPCODE::OVER: {
@@ -229,11 +234,13 @@ class VM {
                 Value v;
                 v.u64 = 0;
                 gc.variables.push_back(v);
+                gc.variable_ptrs.push_back(false);
                 break;
             }
             case OPCODE::UNDECLARE: {
                 const uint64_t num = gc.variables.size() - i.operands[0];
                 gc.variables.resize(num);
+                gc.variable_ptrs.resize(num);
                 break;
             }
             case OPCODE::LOAD:
