@@ -5,6 +5,7 @@
 #include <iostream>
 #include <map>
 #include <ostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -65,11 +66,11 @@ inline bool takes_operand(OPCODE op) {
 // so if i wanted to i coudl make every instruction except PUSH use a stack instead of loading from an operands
 // maybe this will be more clear, maybe not ill have to think about whether i want to restructure this or not
 class VM {
-    std::vector<Value> stack;
+    std::vector<bool> stack_ptrs, variable_ptrs;
+    std::vector<Value> stack, variables;
     std::vector<std::vector<size_t>> struct_offsets;
     std::vector<size_t> struct_len;
     bool defining_struct = false;
-    std::vector<Value> variables;
     program prog;
     uint64_t instruction_ptr = 0;
     uint8_t cmp_flags[3] = {0};
@@ -78,14 +79,19 @@ class VM {
 
     size_t current_module = 0; // The active binary
     std::vector<std::pair<size_t, uint64_t>> call_stack;
-    inline void push(Value val) { stack.push_back(val); }
-    inline Value pop() {
+    inline void push(Value val, bool is_ptr = false) {
+        stack.push_back(val);
+        stack_ptrs.push_back(is_ptr);
+    }
+    inline std::pair<Value, bool> pop() {
         if (stack.empty()) {
             throw std::runtime_error("Stack underflow!");
         }
         Value val = stack.back();
+        bool is_ptr = stack_ptrs.back();
         stack.pop_back();
-        return val;
+        stack_ptrs.pop_back();
+        return {val, is_ptr};
     }
     inline Value &access_from_top(size_t ind) {
         if (ind >= stack.size())
@@ -108,16 +114,35 @@ class VM {
             size_t oldsize = cursize;
             while (cursize <= ind)
                 cursize *= 2;
+            variable_ptrs.resize(cursize);
             variables.resize(cursize);
         }
         return variables[ind];
+    }
+    inline int64_t access_ptr_bool(int64_t ind) {
+        while (ind < 0)
+            ind += variables.size();
+        if (ind >= variables.size()) {
+            size_t cursize = variables.size();
+            if (cursize == 0) {
+                cursize = 256;
+            }
+            size_t oldsize = cursize;
+            while (cursize <= ind)
+                cursize *= 2;
+            variable_ptrs.resize(cursize);
+            variables.resize(cursize);
+        }
+        return ind;
     }
 
   public:
     VM(const program &p) : prog(p) {
         stack.reserve(8192);
+        stack_ptrs.reserve(8192);
         call_stack.reserve(1024);
         variables.reserve(256);
+        variable_ptrs.reserve(256);
         loaded_modules.push_back(p);
     }
     void load_module(const program &p) {
@@ -156,7 +181,7 @@ class VM {
                 break;
             }
             case OPCODE::BOOL_NOT: {
-                Value v = pop();
+                Value v = pop().first;
                 v.u64 = !v.u64;
                 push(v);
                 break;
@@ -226,9 +251,12 @@ class VM {
             case OPCODE::LOAD:
                 push(access_variable(std::bit_cast<int64_t>(i.operands[0])));
                 break;
-            case OPCODE::STORE:
-                access_variable(i.operands[0]) = pop();
+            case OPCODE::STORE: {
+                auto x = pop();
+                access_variable(i.operands[0]) = x.first;
+                variable_ptrs[access_ptr_bool(i.operands[0])] = x.second;
                 break;
+            }
             // case OPCODE::ALLOCA: {
             //     size_t size_in_bytes=pop().u64;
             //     Value v;
@@ -244,18 +272,18 @@ class VM {
             //
             // todo: add headers to array or smth
             case OPCODE::MALLOC: {
-                auto size_in_bytes = pop().u64+8;
-                uint64_t *ptr = reinterpret_cast<uint64_t*>(new uint8_t[size_in_bytes]());
-                ptr[0]=0;
+                auto size_in_bytes = pop().first.u64 + 8;
+                uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
+                ptr[0] = 0;
                 Value v;
                 v.ptr = &ptr[1];
                 push(v);
                 break;
             }
             case OPCODE::MALLOC_STRUCT: {
-                auto size_in_bytes = struct_len[i.operands[0]]+8;
-                uint64_t *ptr = reinterpret_cast<uint64_t*>(new uint8_t[size_in_bytes]());
-                ptr[0]=i.operands[0]+1;
+                auto size_in_bytes = struct_len[i.operands[0]] + 8;
+                uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
+                ptr[0] = i.operands[0] + 1;
                 Value v;
                 v.ptr = &ptr[1];
                 push(v);
@@ -274,7 +302,8 @@ class VM {
                 break;
             }
             case OPCODE::STRUCT_SIZE: {
-                // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was added in END_STRUCT.
+                // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was
+                // added in END_STRUCT.
                 if (defining_struct)
                     struct_len.push_back(i.operands[0]);
                 else
@@ -289,101 +318,101 @@ class VM {
                 // todo: remove this, replace with something better
                 uint64_t *str = new uint64_t[2];
                 str[0] = reinterpret_cast<uint64_t>(&loaded_modules[current_module].data[i.operands[0]]);
-                str[1] = pop().u64;
+                str[1] = pop().first.u64;
                 Value v;
                 v.ptr = str;
                 push(v);
                 break;
             }
             case OPCODE::I8_ALOAD: {
-                auto index = pop().u64;
-                int8_t *arr = reinterpret_cast<int8_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                int8_t *arr = reinterpret_cast<int8_t *>(pop().first.ptr);
                 Value res;
                 res.i64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::U8_ALOAD: {
-                auto index = pop().u64;
-                uint8_t *arr = reinterpret_cast<uint8_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                uint8_t *arr = reinterpret_cast<uint8_t *>(pop().first.ptr);
                 Value res;
                 res.u64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::I16_ALOAD: {
-                auto index = pop().u64;
-                int16_t *arr = reinterpret_cast<int16_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                int16_t *arr = reinterpret_cast<int16_t *>(pop().first.ptr);
                 Value res;
                 res.i64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::U16_ALOAD: {
-                auto index = pop().u64;
-                uint16_t *arr = reinterpret_cast<uint16_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                uint16_t *arr = reinterpret_cast<uint16_t *>(pop().first.ptr);
                 Value res;
                 res.u64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::I32_ALOAD: {
-                auto index = pop().u64;
-                int32_t *arr = reinterpret_cast<int32_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                int32_t *arr = reinterpret_cast<int32_t *>(pop().first.ptr);
                 Value res;
                 res.i64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::U32_ALOAD: {
-                auto index = pop().u64;
-                uint32_t *arr = reinterpret_cast<uint32_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                uint32_t *arr = reinterpret_cast<uint32_t *>(pop().first.ptr);
                 Value res;
                 res.u64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::I64_ALOAD: {
-                auto index = pop().u64;
-                uint64_t *arr = reinterpret_cast<uint64_t *>(pop().ptr);
+                auto index = pop().first.u64;
+                uint64_t *arr = reinterpret_cast<uint64_t *>(pop().first.ptr);
                 Value res;
                 res.u64 = arr[index];
                 push(res);
                 break;
             }
             case OPCODE::I8_ASTORE: {
-                auto val = pop();
-                auto index = pop().u64;
-                reinterpret_cast<int8_t *>(pop().ptr)[index] = static_cast<int8_t>(val.i32);
+                auto val = pop().first;
+                auto index = pop().first.u64;
+                reinterpret_cast<int8_t *>(pop().first.ptr)[index] = static_cast<int8_t>(val.i32);
                 break;
             }
             case OPCODE::I16_ASTORE: {
-                auto val = pop();
-                auto index = pop().u64;
-                reinterpret_cast<int16_t *>(pop().ptr)[index] = static_cast<int16_t>(val.i32);
+                auto val = pop().first;
+                auto index = pop().first.u64;
+                reinterpret_cast<int16_t *>(pop().first.ptr)[index] = static_cast<int16_t>(val.i32);
                 break;
             }
             case OPCODE::I32_ASTORE: {
-                auto val = pop();
-                auto index = pop().u64;
-                reinterpret_cast<int32_t *>(pop().ptr)[index] = val.i32;
+                auto val = pop().first;
+                auto index = pop().first.u64;
+                reinterpret_cast<int32_t *>(pop().first.ptr)[index] = val.i32;
                 break;
             }
             case OPCODE::I64_ASTORE: {
-                auto val = pop();
-                auto index = pop().u64;
-                reinterpret_cast<uint64_t *>(pop().ptr)[index] = val.u64;
+                auto val = pop().first;
+                auto index = pop().first.u64;
+                reinterpret_cast<uint64_t *>(pop().first.ptr)[index] = val.u64;
                 break;
             }
             case OPCODE::I32_NEGATE: {
-                Value r = pop();
+                Value r = pop().first;
                 r.i32 = -r.i32;
                 push(r);
                 break;
             }
             case OPCODE::I32_ADD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 + b.i32;
@@ -391,8 +420,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_SUB: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 - b.i32;
@@ -400,8 +429,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_MULT: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 * b.i32;
@@ -409,8 +438,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_DIV: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 / b.i32;
@@ -418,8 +447,8 @@ class VM {
                 break;
             }
             case OPCODE::U32_DIV: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u32 = a.u32 / b.u32;
@@ -427,8 +456,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_MOD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 % b.i32;
@@ -436,8 +465,8 @@ class VM {
                 break;
             }
             case OPCODE::U32_MOD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u32 = a.u32 % b.u32;
@@ -445,14 +474,14 @@ class VM {
                 break;
             }
             case OPCODE::I64_NEGATE: {
-                Value r = pop();
+                Value r = pop().first;
                 r.i64 = -r.i64;
                 push(r);
                 break;
             }
             case OPCODE::I64_ADD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 + b.i64;
@@ -460,8 +489,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_SUB: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 - b.i64;
@@ -469,8 +498,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_MULT: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 * b.i64;
@@ -478,8 +507,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_DIV: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 / b.i64;
@@ -487,8 +516,8 @@ class VM {
                 break;
             }
             case OPCODE::U64_DIV: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = a.u64 / b.u64;
@@ -496,8 +525,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_MOD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 % b.i64;
@@ -505,8 +534,8 @@ class VM {
                 break;
             }
             case OPCODE::U64_MOD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = a.u64 % b.u64;
@@ -514,14 +543,14 @@ class VM {
                 break;
             }
             case OPCODE::F32_NEGATE: {
-                Value r = pop();
+                Value r = pop().first;
                 r.f32 = -r.f32;
                 push(r);
                 break;
             }
             case OPCODE::F32_ADD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = a.f32 + b.f32;
@@ -529,8 +558,8 @@ class VM {
                 break;
             }
             case OPCODE::F32_SUB: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = a.f32 - b.f32;
@@ -538,8 +567,8 @@ class VM {
                 break;
             }
             case OPCODE::F32_MULT: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = a.f32 * b.f32;
@@ -547,8 +576,8 @@ class VM {
                 break;
             }
             case OPCODE::F32_DIV: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = a.f32 / b.f32;
@@ -556,14 +585,14 @@ class VM {
                 break;
             }
             case OPCODE::F64_NEGATE: {
-                Value r = pop();
+                Value r = pop().first;
                 r.f64 = -r.f64;
                 push(r);
                 break;
             }
             case OPCODE::F64_ADD: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = a.f64 + b.f64;
@@ -571,8 +600,8 @@ class VM {
                 break;
             }
             case OPCODE::F64_SUB: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = a.f64 - b.f64;
@@ -580,8 +609,8 @@ class VM {
                 break;
             }
             case OPCODE::F64_MULT: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = a.f64 * b.f64;
@@ -589,8 +618,8 @@ class VM {
                 break;
             }
             case OPCODE::F64_DIV: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = a.f64 / b.f64;
@@ -598,8 +627,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_AND: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 & b.i32;
@@ -607,8 +636,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_OR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 | b.i32;
@@ -616,8 +645,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_XOR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 ^ b.i32;
@@ -625,7 +654,7 @@ class VM {
                 break;
             }
             case OPCODE::I32_NOT: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = ~a.i32;
@@ -633,8 +662,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_SHL: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 << b.i32;
@@ -642,8 +671,8 @@ class VM {
                 break;
             }
             case OPCODE::I32_SHR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = a.i32 >> b.i32;
@@ -651,8 +680,8 @@ class VM {
                 break;
             }
             case OPCODE::U32_SHR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u32 = a.u32 >> b.u32;
@@ -660,8 +689,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_AND: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 & b.i64;
@@ -669,8 +698,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_OR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 | b.i64;
@@ -678,8 +707,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_XOR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 ^ b.i64;
@@ -687,7 +716,7 @@ class VM {
                 break;
             }
             case OPCODE::I64_NOT: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = ~a.i64;
@@ -695,8 +724,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_SHL: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 << b.i64;
@@ -704,8 +733,8 @@ class VM {
                 break;
             }
             case OPCODE::I64_SHR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = a.i64 >> b.i64;
@@ -713,8 +742,8 @@ class VM {
                 break;
             }
             case OPCODE::U64_SHR: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = a.u64 >> b.u64;
@@ -722,55 +751,55 @@ class VM {
                 break;
             }
             case OPCODE::I32_CMP: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 cmp_flags[E] = (a.i32 == b.i32);
                 cmp_flags[LT] = (a.i32 < b.i32);
                 cmp_flags[GT] = (a.i32 > b.i32);
                 break;
             }
             case OPCODE::U32_CMP: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 cmp_flags[E] = (a.u32 == b.u32);
                 cmp_flags[LT] = (a.u32 < b.u32);
                 cmp_flags[GT] = (a.u32 > b.u32);
                 break;
             }
             case OPCODE::I64_CMP: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 cmp_flags[E] = (a.i64 == b.i64);
                 cmp_flags[LT] = (a.i64 < b.i64);
                 cmp_flags[GT] = (a.i64 > b.i64);
                 break;
             }
             case OPCODE::U64_CMP: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 cmp_flags[E] = (a.u64 == b.u64);
                 cmp_flags[LT] = (a.u64 < b.u64);
                 cmp_flags[GT] = (a.u64 > b.u64);
                 break;
             }
             case OPCODE::F32_CMP: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 cmp_flags[E] = (a.f32 == b.f32);
                 cmp_flags[LT] = (a.f32 < b.f32);
                 cmp_flags[GT] = (a.f32 > b.f32);
                 break;
             }
             case OPCODE::F64_CMP: {
-                Value b = pop();
-                Value a = pop();
+                Value b = pop().first;
+                Value a = pop().first;
                 cmp_flags[E] = (a.f64 == b.f64);
                 cmp_flags[LT] = (a.f64 < b.f64);
                 cmp_flags[GT] = (a.f64 > b.f64);
                 break;
             }
             case OPCODE::I32_EXTEND_I64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = static_cast<int64_t>(a.i32);
@@ -778,7 +807,7 @@ class VM {
                 break;
             }
             case OPCODE::U32_EXTEND_I64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = static_cast<uint64_t>(a.u32);
@@ -786,7 +815,7 @@ class VM {
                 break;
             }
             case OPCODE::I32_WRAP_I64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = 0;
@@ -795,7 +824,7 @@ class VM {
                 break;
             }
             case OPCODE::I32_TO_F64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = static_cast<double>(a.i32);
@@ -803,7 +832,7 @@ class VM {
                 break;
             }
             case OPCODE::U32_TO_F64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = static_cast<double>(a.u32);
@@ -811,7 +840,7 @@ class VM {
                 break;
             }
             case OPCODE::I64_TO_F32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = static_cast<float>(a.i64);
@@ -819,7 +848,7 @@ class VM {
                 break;
             }
             case OPCODE::I64_TO_F64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = static_cast<double>(a.i64);
@@ -827,7 +856,7 @@ class VM {
                 break;
             }
             case OPCODE::U64_TO_F32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = static_cast<float>(a.u64);
@@ -835,7 +864,7 @@ class VM {
                 break;
             }
             case OPCODE::U64_TO_F64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = static_cast<float>(a.u64);
@@ -843,7 +872,7 @@ class VM {
                 break;
             }
             case OPCODE::F64_TO_I32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i32 = static_cast<int32_t>(a.f64);
@@ -851,7 +880,7 @@ class VM {
                 break;
             }
             case OPCODE::F64_TO_U32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u32 = static_cast<uint32_t>(a.f64);
@@ -859,7 +888,7 @@ class VM {
                 break;
             }
             case OPCODE::F64_TO_I64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = static_cast<int64_t>(a.f64);
@@ -867,7 +896,7 @@ class VM {
                 break;
             }
             case OPCODE::F64_TO_U64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = static_cast<uint64_t>(a.f64);
@@ -875,7 +904,7 @@ class VM {
                 break;
             }
             case OPCODE::F32_TO_I64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = static_cast<int64_t>(a.f32);
@@ -883,7 +912,7 @@ class VM {
                 break;
             }
             case OPCODE::F32_TO_U64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = static_cast<uint64_t>(a.f32);
@@ -891,7 +920,7 @@ class VM {
                 break;
             }
             case OPCODE::I32_TO_F32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = static_cast<float>(a.i32);
@@ -899,7 +928,7 @@ class VM {
                 break;
             }
             case OPCODE::U32_TO_F32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = static_cast<float>(a.u32);
@@ -907,7 +936,7 @@ class VM {
                 break;
             }
             case OPCODE::F32_TO_I32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.i64 = 0;
@@ -916,7 +945,7 @@ class VM {
                 break;
             }
             case OPCODE::F32_TO_U32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.u64 = 0;
@@ -925,7 +954,7 @@ class VM {
                 break;
             }
             case OPCODE::F32_TO_F64: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f64 = static_cast<double>(a.f32);
@@ -933,7 +962,7 @@ class VM {
                 break;
             }
             case OPCODE::F64_TO_F32: {
-                Value a = pop();
+                Value a = pop().first;
                 Value r;
                 r.u64 = 0;
                 r.f32 = static_cast<float>(a.f64);
@@ -980,13 +1009,13 @@ class VM {
                 break;
             }
             case OPCODE::JC: {
-                bool jmp = pop().u64;
+                bool jmp = pop().first.u64;
                 if (jmp)
                     instruction_ptr = i.operands[0];
                 break;
             }
             case OPCODE::JNC: {
-                bool jmp = pop().u64;
+                bool jmp = pop().first.u64;
                 if (!jmp)
                     instruction_ptr = i.operands[0];
                 break;
@@ -1019,26 +1048,26 @@ class VM {
                     instruction_ptr = i.operands[0];
                 break;
             case OPCODE::PRINT_U32:
-                std::cout << pop().u32;
+                std::cout << pop().first.u32;
                 break;
             case OPCODE::PRINT_U64:
-                std::cout << pop().u64;
+                std::cout << pop().first.u64;
                 break;
             case OPCODE::PRINT_F64:
-                std::cout << pop().f64;
+                std::cout << pop().first.f64;
                 break;
             case OPCODE::PRINT_I32:
-                std::cout << pop().i32;
+                std::cout << pop().first.i32;
                 break;
             case OPCODE::PRINT_F32:
-                std::cout << pop().f32;
+                std::cout << pop().first.f32;
                 break;
             case OPCODE::PRINT_I64:
-                std::cout << pop().i64;
+                std::cout << pop().first.i64;
                 break;
             case OPCODE::PRINT_STRING: {
                 // todo: remove this for something better (THINK MARK THINK)
-                uint64_t *str = reinterpret_cast<uint64_t *>(pop().ptr);
+                uint64_t *str = reinterpret_cast<uint64_t *>(pop().first.ptr);
                 char *ptr = reinterpret_cast<char *>(str[0]);
                 uint64_t len = str[1];
                 std::cout << std::string_view(ptr, len);
