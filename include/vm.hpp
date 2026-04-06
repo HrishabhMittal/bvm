@@ -93,6 +93,12 @@ class VM {
         // the stack without using new instructions
         // ME FROM FUTURE: works absolutely flawlessly btw, im just an absolute genius
         // ME FROM EVEN MORE FUTURE: works flawlessly but u buffoon you resized the wrong stack, i fixed it
+        
+        // although compiler will never generate wrong assembly which causes this bug,
+        // there's no point in not putting safety checks just in case
+        if (ind < 0 && gc.variables.empty()) {
+            throw std::runtime_error("negative variable index on an empty variable stack");
+        }
         while (ind < 0)
             ind += gc.variables.size();
         if (ind >= gc.variables.size()) {
@@ -109,6 +115,9 @@ class VM {
         return gc.variables[ind];
     }
     inline int64_t access_ptr_bool(int64_t ind) {
+        if (ind < 0 && gc.variables.empty()) {
+            throw std::runtime_error("negative variable index on an empty variable stack");
+        }
         while (ind < 0)
             ind += gc.variables.size();
         if (ind >= gc.variables.size()) {
