@@ -17,10 +17,16 @@ class GC {
     std::vector<Value> stack, variables;
     std::vector<std::vector<size_t>> struct_offsets;
     std::vector<size_t> struct_len;
-
+    size_t allocs = 0;
+    const size_t GC_THRESHOLD = 4096;
     // writing would be much lower cortisol if i just made this std::list
     // but we love ourselves some cache friendliness
     std::vector<uint64_t> ptrs;
+    void run() {
+        mark();
+        sweep();
+        allocs = 0;
+    }
     void mark() {
         // nolan: look mark, i scanned a stack.
         // mark: A STACK??
@@ -46,9 +52,12 @@ class GC {
             for (size_t i : struct_offsets[struct_id]) {
                 handle_marking_pointers(reinterpret_cast<uint64_t *>(ptr[i]));
             }
-        } else if (meta_data & 0b100) { // array with non primitives, insane i would have never spotted this bug by myself
+        } else if (meta_data & 0b100) {
+            // array with non primitives, insane i would have never spotted this bug by myself
             const uint64_t len = meta_data >> 3;
-            for (size_t i = 0; i < len; i++) {
+            // go fix ur segfaults boi
+            const uint64_t size = (len - 8) / 8;
+            for (size_t i = 0; i < size; i++) {
                 handle_marking_pointers(reinterpret_cast<uint64_t *>(ptr[i]));
             }
         }
@@ -59,7 +68,7 @@ class GC {
             uint64_t *const pt = reinterpret_cast<uint64_t *>(ptrs[i]) - 1;
             if (pt[0] & 1) {
                 pt[0] &= ~1ULL;
-                ptrs[last++]=ptrs[i];
+                ptrs[last++] = ptrs[i];
             } else {
                 uint8_t *const dlt = reinterpret_cast<uint8_t *>(pt);
                 delete[] dlt;

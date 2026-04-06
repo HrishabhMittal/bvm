@@ -93,7 +93,7 @@ class VM {
         // the stack without using new instructions
         // ME FROM FUTURE: works absolutely flawlessly btw, im just an absolute genius
         // ME FROM EVEN MORE FUTURE: works flawlessly but u buffoon you resized the wrong stack, i fixed it
-        
+
         // although compiler will never generate wrong assembly which causes this bug,
         // there's no point in not putting safety checks just in case
         if (ind < 0 && gc.variables.empty()) {
@@ -278,6 +278,10 @@ class VM {
                 Value v;
                 v.ptr = &ptr[1];
                 push(v, true);
+                gc.allocs++;
+                if (gc.allocs >= gc.GC_THRESHOLD) {
+                    gc.run();
+                }
                 break;
             }
             case OPCODE::MALLOC_STRUCT: {
@@ -288,6 +292,10 @@ class VM {
                 Value v;
                 v.ptr = &ptr[1];
                 push(v, true);
+                gc.allocs++;
+                if (gc.allocs >= gc.GC_THRESHOLD) {
+                    gc.run();
+                }
                 break;
             }
             case OPCODE::DEF_STRUCT: {
