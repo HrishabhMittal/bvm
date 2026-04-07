@@ -96,41 +96,17 @@ class VM {
 
         // although compiler will never generate wrong assembly which causes this bug,
         // there's no point in not putting safety checks just in case
-        if (ind < 0 && gc.variables.empty()) {
-            throw std::runtime_error("negative variable index on an empty variable stack");
+        if (gc.variables.empty()) {
+            throw std::runtime_error("indexing an empty variable stack");
         }
-        while (ind < 0)
-            ind += gc.variables.size();
-        if (ind >= gc.variables.size()) {
-            size_t cursize = gc.variables.size();
-            if (cursize == 0) {
-                cursize = 256;
-            }
-            size_t oldsize = cursize;
-            while (cursize <= ind)
-                cursize *= 2;
-            gc.variable_ptrs.resize(cursize);
-            gc.variables.resize(cursize);
-        }
+        ind = (ind < 0) ? (gc.variables.size() + ind) : ind;
         return gc.variables[ind];
     }
     inline int64_t access_ptr_bool(int64_t ind) {
-        if (ind < 0 && gc.variables.empty()) {
-            throw std::runtime_error("negative variable index on an empty variable stack");
+        if (gc.variables.empty()) {
+            throw std::runtime_error("indexing an empty variable stack");
         }
-        while (ind < 0)
-            ind += gc.variables.size();
-        if (ind >= gc.variables.size()) {
-            size_t cursize = gc.variables.size();
-            if (cursize == 0) {
-                cursize = 256;
-            }
-            size_t oldsize = cursize;
-            while (cursize <= ind)
-                cursize *= 2;
-            gc.variable_ptrs.resize(cursize);
-            gc.variables.resize(cursize);
-        }
+        ind = (ind < 0) ? (gc.variables.size() + ind) : ind;
         return ind;
     }
 
@@ -160,7 +136,7 @@ class VM {
     }
     void exec() {
         while (current_module < loaded_modules.size() && instruction_ptr < loaded_modules[current_module].code.size()) {
-            instruction i = loaded_modules[current_module].code[instruction_ptr++];
+            const instruction& i = loaded_modules[current_module].code[instruction_ptr++];
             // std::cout << i.op << " [Stack Size:" << stack.size() << "]\n";
             // std::cout << "[";
             // for (auto i : stack)
@@ -272,6 +248,7 @@ class VM {
             case OPCODE::MALLOC: {
                 size_t size_in_bytes = pop().first.u64 + 8;
                 uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
+                // std::cout << "MALLOC: " << ptr << size_in_bytes << std::endl;
                 gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
                 uint64_t ptr_array = i.operands[0] ? 0b100 : 0;
                 ptr[0] = (size_in_bytes << 3) | ptr_array;
@@ -287,6 +264,7 @@ class VM {
             case OPCODE::MALLOC_STRUCT: {
                 size_t size_in_bytes = gc.struct_len[i.operands[0]] + 8;
                 uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
+                // std::cout << "MALLOC: " << ptr << size_in_bytes << std::endl;
                 gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
                 ptr[0] = (i.operands[0] << 3) | 0b10;
                 Value v;

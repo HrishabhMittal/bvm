@@ -1,5 +1,6 @@
 #pragma once
 #include "opcode.hpp"
+#include <iostream>
 #include <vector>
 namespace bvm {
 union Value {
@@ -23,9 +24,11 @@ class GC {
     // but we love ourselves some cache friendliness
     std::vector<uint64_t> ptrs;
     void run() {
+        // std::cout << "RUNNING GC: " << std::endl;
         mark();
         sweep();
         allocs = 0;
+        // std::cout << "POINTERS LEFT: " << ptrs.size() << std::endl;
     }
     void mark() {
         // nolan: look mark, i scanned a stack.
@@ -71,6 +74,7 @@ class GC {
                 ptrs[last++] = ptrs[i];
             } else {
                 uint8_t *const dlt = reinterpret_cast<uint8_t *>(pt);
+                // std::cout << "FREEING: " << pt << std::endl;
                 delete[] dlt;
             }
         }
