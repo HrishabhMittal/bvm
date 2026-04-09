@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     program stdlib;
     stdlib.header = "BOLT_STDLIB_V1";
     auto add_print_func = [&](const std::string &name, OPCODE print_op) {
-        std::string extended_name = prefix + '.' + name;
+        std::string extended_name = prefix + "::" + name;
         stdlib.exported_functions[extended_name] = stdlib.code.size();
         stdlib.code.push_back({print_op, {0}});
         stdlib.code.push_back({OPCODE::RET, {0}});

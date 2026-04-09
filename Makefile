@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++23 -Ofast -march=native
+CXXFLAGS = -std=c++23 -Ofast -march=native -flto
 OUT_DIR = build
 SRC_DIR = src
 STD_DIR = stdlib

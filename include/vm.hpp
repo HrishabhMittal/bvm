@@ -68,11 +68,11 @@ class VM {
 
     size_t current_module = 0; // The active binary
     std::vector<std::pair<size_t, uint64_t>> call_stack;
-    inline void push(Value val, bool is_ptr = false) {
+    __attribute__((always_inline)) inline void push(Value val, bool is_ptr = false) {
         gc.stack.push_back(val);
         gc.stack_ptrs.push_back(is_ptr);
     }
-    inline std::pair<Value, bool> pop() {
+    __attribute__((always_inline)) inline std::pair<Value, bool> pop() {
         if (gc.stack.empty()) {
             throw std::runtime_error("Stack underflow!");
         }
