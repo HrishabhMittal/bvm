@@ -79,13 +79,42 @@ class optimiser {
                 instructions[i + 1].op = OPCODE::NOP;
                 instructions[i + 2].op = OPCODE::NOP;
                 instructions[i + 3].op = OPCODE::NOP;
+            } else if (instructions[i].op == OPCODE::JMP && instructions[i].operands[0] == i + 1) {
+                instructions[i].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PLT, OPCODE::JNC})) {
+                instructions[i].op = OPCODE::JGE;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PLT, OPCODE::JC})) {
+                instructions[i].op = OPCODE::JLT;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PGT, OPCODE::JNC})) {
+                instructions[i].op = OPCODE::JLE;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PGT, OPCODE::JC})) {
+                instructions[i].op = OPCODE::JGT;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PLE, OPCODE::JNC})) {
+                instructions[i].op = OPCODE::JGT;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PE, OPCODE::JNC})) {
+                instructions[i].op = OPCODE::JNE;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PE, OPCODE::JC})) {
+                instructions[i].op = OPCODE::JE;
+                instructions[i].operands[0] = instructions[i + 1].operands[0];
+                instructions[i + 1].op = OPCODE::NOP;
             }
         }
     }
 
   public:
-    optimiser(program &prog) : prog(prog), instructions(prog.code) {
-    }
+    optimiser(program &prog) : prog(prog), instructions(prog.code) {}
     void run_all_optimisations() {
         peephole();
         remove_all_nops();
