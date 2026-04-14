@@ -1,4 +1,5 @@
 #include <bvm.hpp>
+#include <chrono>
 #include <fstream>
 #include <ios>
 #include <iostream>
@@ -21,8 +22,13 @@ int main(int argc, char **argv) {
             std::cerr << "couldnt open module: " << argv[i] << std::endl;
         }
     }
+    auto start_time = std::chrono::high_resolution_clock::now();
     vm.exec();
+    auto end_time = std::chrono::high_resolution_clock::now();
     auto status = vm.return_value();
-    std::cout << "process exited with value " << status << std::endl;
+    std::cout << "process exited with value: " << status << std::endl
+              << "time taken: "
+              << (std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time)).count() << "ms"
+              << std::endl;
     return 0;
 }

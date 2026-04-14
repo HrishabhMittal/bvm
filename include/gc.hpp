@@ -14,7 +14,7 @@ union Value {
 };
 class GC {
   public:
-    std::vector<bool> stack_ptrs, variable_ptrs;
+    std::vector<uint8_t> stack_ptrs, variable_ptrs;
     std::vector<Value> stack, variables;
     std::vector<std::vector<size_t>> struct_offsets;
     std::vector<size_t> struct_len;

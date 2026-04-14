@@ -79,9 +79,9 @@ class VM {
         gc.stack_ptrs.push_back(is_ptr);
     }
     __attribute__((always_inline)) inline std::pair<Value, bool> pop() {
-        if (gc.stack.empty()) {
-            throw std::runtime_error("Stack underflow!");
-        }
+        // if (gc.stack.empty()) {
+        //     throw std::runtime_error("Stack underflow!");
+        // }
         Value val = gc.stack.back();
         bool is_ptr = gc.stack_ptrs.back();
         gc.stack.pop_back();
@@ -89,8 +89,8 @@ class VM {
         return {val, is_ptr};
     }
     inline Value &access_from_top(size_t ind) {
-        if (ind >= gc.stack.size())
-            throw std::runtime_error("Negative stack index");
+        // if (ind >= gc.stack.size())
+        //     throw std::runtime_error("Negative stack index");
         ind = gc.stack.size() - 1 - ind;
         return gc.stack[ind];
     }
@@ -100,18 +100,16 @@ class VM {
         // ME FROM FUTURE: works absolutely flawlessly btw, im just an absolute genius
         // ME FROM EVEN MORE FUTURE: works flawlessly but u buffoon you resized the wrong stack, i fixed it
 
-        // although compiler will never generate wrong assembly which causes this bug,
-        // there's no point in not putting safety checks just in case
-        if (gc.variables.empty()) {
-            throw std::runtime_error("indexing an empty variable stack");
-        }
+        // if (gc.variables.empty()) {
+        //     throw std::runtime_error("indexing an empty variable stack");
+        // }
         ind = (ind < 0) ? (gc.variables.size() + ind) : ind;
         return gc.variables[ind];
     }
     inline int64_t access_ptr_bool(int64_t ind) {
-        if (gc.variables.empty()) {
-            throw std::runtime_error("indexing an empty variable stack");
-        }
+        // if (gc.variables.empty()) {
+        //     throw std::runtime_error("indexing an empty variable stack");
+        // }
         ind = (ind < 0) ? (gc.variables.size() + ind) : ind;
         return ind;
     }
@@ -325,8 +323,8 @@ class VM {
         DISPATCH();
     }
     op_swap: {
-        if (gc.stack.size() < 2)
-            throw std::runtime_error("stack underflow");
+        // if (gc.stack.size() < 2)
+        //     throw std::runtime_error("stack underflow");
         std::swap(gc.stack[gc.stack.size() - 1], gc.stack[gc.stack.size() - 2]);
 
         // bcoz ofc bitset doesnt implement shite
@@ -441,17 +439,17 @@ class VM {
     op_ptr_at: {
         if (defining_struct)
             gc.struct_offsets.back().push_back(i->operands[0]);
-        else
-            throw std::runtime_error("PTR_AT found outside struct definition.");
+        // else
+        //     throw std::runtime_error("PTR_AT found outside struct definition.");
         DISPATCH();
     }
     op_struct_size: {
         // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was
         // added in END_STRUCT.
-        if (defining_struct)
+        // if (defining_struct)
             gc.struct_len.push_back(i->operands[0]);
-        else
-            throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
+        // else
+        //     throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
         DISPATCH();
     }
     op_end_struct: {
