@@ -18,6 +18,26 @@ inline bool is_conditional_jmp(OPCODE op) {
         return false;
     }
 }
+inline OPCODE load_store_immediate(OPCODE op) {
+    switch (op) {
+    case OPCODE::I8_ALOAD:
+        return OPCODE::I8_ALOAD_I;
+    case OPCODE::U8_ALOAD:
+        return OPCODE::U8_ALOAD_I;
+    case OPCODE::I16_ALOAD:
+        return OPCODE::I16_ALOAD_I;
+    case OPCODE::U16_ALOAD:
+        return OPCODE::U16_ALOAD_I;
+    case OPCODE::I32_ALOAD:
+        return OPCODE::I32_ALOAD_I;
+    case OPCODE::U32_ALOAD:
+        return OPCODE::U32_ALOAD_I;
+    case OPCODE::I64_ALOAD:
+        return OPCODE::I64_ALOAD_I;
+    default:
+        return OPCODE::NOP;
+    }
+}
 class optimiser {
     program &prog;
     std::vector<instruction> &instructions;
@@ -41,7 +61,7 @@ class optimiser {
     void unreachable_to_nop() {
         std::vector<bool> reachable(instructions.size(), false);
         mark_reachable(reachable, 0);
-        for (const auto& [name, func_ip] : prog.exported_functions) {
+        for (const auto &[name, func_ip] : prog.exported_functions) {
             mark_reachable(reachable, func_ip);
         }
         for (size_t i = 0; i < instructions.size(); i++) {
@@ -173,6 +193,12 @@ class optimiser {
                 instructions[i].op = OPCODE::JNE;
                 instructions[i].operands[0] = instructions[i + 1].operands[0];
                 instructions[i + 1].op = OPCODE::NOP;
+            } else if (match_at(i, {OPCODE::PUSH})) {
+                OPCODE iop = load_store_immediate(instructions[i + 1].op);
+                if (iop != OPCODE::NOP) {
+                    instructions[i].op = iop;
+                    instructions[i + 1].op = OPCODE::NOP;
+                }
             }
         }
     }

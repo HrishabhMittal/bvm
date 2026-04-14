@@ -43,6 +43,14 @@ enum class OPCODE : uint8_t {
     I32_ASTORE,
     I64_ASTORE,
 
+    I8_ALOAD_I,
+    U8_ALOAD_I,
+    I16_ALOAD_I,
+    U16_ALOAD_I,
+    I32_ALOAD_I,
+    U32_ALOAD_I,
+    I64_ALOAD_I,
+
     BOOL_NOT,
 
     I32_NEGATE,

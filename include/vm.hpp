@@ -54,6 +54,13 @@ inline uint32_t takes_operand(OPCODE op) {
     case OPCODE::I64_DEC:
     case OPCODE::I32_DEC:
     case OPCODE::DECLARE_INIT:
+    case OPCODE::I8_ALOAD_I:
+    case OPCODE::U8_ALOAD_I:
+    case OPCODE::I16_ALOAD_I:
+    case OPCODE::U16_ALOAD_I:
+    case OPCODE::I32_ALOAD_I:
+    case OPCODE::U32_ALOAD_I:
+    case OPCODE::I64_ALOAD_I:
         return 1;
     default:
         return 0;
@@ -177,6 +184,14 @@ class VM {
                                          [static_cast<size_t>(OPCODE::I16_ASTORE)] = &&op_i16_astore,
                                          [static_cast<size_t>(OPCODE::I32_ASTORE)] = &&op_i32_astore,
                                          [static_cast<size_t>(OPCODE::I64_ASTORE)] = &&op_i64_astore,
+
+                                         [static_cast<size_t>(OPCODE::I8_ALOAD_I)] = &&op_i8_aload_i,
+                                         [static_cast<size_t>(OPCODE::U8_ALOAD_I)] = &&op_u8_aload_i,
+                                         [static_cast<size_t>(OPCODE::I16_ALOAD_I)] = &&op_i16_aload_i,
+                                         [static_cast<size_t>(OPCODE::U16_ALOAD_I)] = &&op_u16_aload_i,
+                                         [static_cast<size_t>(OPCODE::I32_ALOAD_I)] = &&op_i32_aload_i,
+                                         [static_cast<size_t>(OPCODE::U32_ALOAD_I)] = &&op_u32_aload_i,
+                                         [static_cast<size_t>(OPCODE::I64_ALOAD_I)] = &&op_i64_aload_i,
 
                                          [static_cast<size_t>(OPCODE::BOOL_NOT)] = &&op_bool_not,
 
@@ -447,7 +462,7 @@ class VM {
         // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was
         // added in END_STRUCT.
         // if (defining_struct)
-            gc.struct_len.push_back(i->operands[0]);
+        gc.struct_len.push_back(i->operands[0]);
         // else
         //     throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
         DISPATCH();
@@ -544,6 +559,62 @@ class VM {
         auto val = pop().first;
         auto index = pop().first.u64;
         reinterpret_cast<uint64_t *>(pop().first.ptr)[index] = val.u64;
+        DISPATCH();
+    }
+    op_i8_aload_i: {
+        auto index = i->operands[0];
+        int8_t *arr = reinterpret_cast<int8_t *>(pop().first.ptr);
+        Value res;
+        res.i64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_u8_aload_i: {
+        auto index = i->operands[0];
+        uint8_t *arr = reinterpret_cast<uint8_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i16_aload_i: {
+        auto index = i->operands[0];
+        int16_t *arr = reinterpret_cast<int16_t *>(pop().first.ptr);
+        Value res;
+        res.i64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_u16_aload_i: {
+        auto index = i->operands[0];
+        uint16_t *arr = reinterpret_cast<uint16_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i32_aload_i: {
+        auto index = i->operands[0];
+        int32_t *arr = reinterpret_cast<int32_t *>(pop().first.ptr);
+        Value res;
+        res.i64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_u32_aload_i: {
+        auto index = i->operands[0];
+        uint32_t *arr = reinterpret_cast<uint32_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i64_aload_i: {
+        auto index = i->operands[0];
+        uint64_t *arr = reinterpret_cast<uint64_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
         DISPATCH();
     }
     op_i32_negate: {
