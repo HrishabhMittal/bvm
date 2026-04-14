@@ -11,9 +11,10 @@
 #include <vector>
 namespace bvm {
 enum { GT = 0, E, LT };
+#define MAX_OPERANDS 1
 struct instruction {
     OPCODE op;
-    uint64_t operands[1];
+    uint64_t operands[MAX_OPERANDS];
 };
 struct program {
     std::string header;
@@ -26,7 +27,7 @@ inline std::ostream &operator<<(std::ostream &out, const OPCODE &i) {
     out << enum_name(i);
     return out;
 }
-inline bool takes_operand(OPCODE op) {
+inline uint32_t takes_operand(OPCODE op) {
     switch (op) {
     case OPCODE::PUSH:
     case OPCODE::CALL:
@@ -48,9 +49,14 @@ inline bool takes_operand(OPCODE op) {
     case OPCODE::PTR_AT:
     case OPCODE::MALLOC:
     case OPCODE::MALLOC_STRUCT:
-        return true;
+    case OPCODE::I64_INC:
+    case OPCODE::I32_INC:
+    case OPCODE::I64_DEC:
+    case OPCODE::I32_DEC:
+    case OPCODE::DECLARE_INIT:
+        return 1;
     default:
-        return false;
+        return 0;
     }
 }
 
@@ -278,934 +284,969 @@ class VM {
                                          [static_cast<size_t>(OPCODE::PRINT_F64)] = &&op_print_f64,
                                          [static_cast<size_t>(OPCODE::PRINT_STRING)] = &&op_print_string,
 
+                                         [static_cast<size_t>(OPCODE::I32_INC)] = &&op_i32_inc,
+                                         [static_cast<size_t>(OPCODE::I64_INC)] = &&op_i64_inc,
+                                         [static_cast<size_t>(OPCODE::I32_DEC)] = &&op_i32_dec,
+                                         [static_cast<size_t>(OPCODE::I64_DEC)] = &&op_i64_dec,
+                                         [static_cast<size_t>(OPCODE::DECLARE_INIT)] = &&op_declare_init,
                                          [static_cast<size_t>(OPCODE::END_GEN_ENUM_NAMES)] = &&op_end_gen_enum_names};
 
         const instruction *i;
-        #define DISPATCH()                                                                                                     \
-            {                                                                                                                  \
-                if (current_module >= loaded_modules.size() || instruction_ptr >= loaded_modules[current_module].code.size())  \
-                    return;                                                                                                    \
-                i = &loaded_modules[current_module].code[instruction_ptr++];                                                   \
-                goto *dispatch_table[static_cast<size_t>(i->op)];                                                              \
-            }
-        
-        op_end_gen_enum_names:
-        op_nop:
-            DISPATCH();
-        op_halt:
+#define DISPATCH()                                                                                                     \
+    {                                                                                                                  \
+        if (current_module >= loaded_modules.size() || instruction_ptr >= loaded_modules[current_module].code.size())  \
+            return;                                                                                                    \
+        i = &loaded_modules[current_module].code[instruction_ptr++];                                                   \
+        goto *dispatch_table[static_cast<size_t>(i->op)];                                                              \
+    }
+
+    op_end_gen_enum_names:
+    op_nop:
+        DISPATCH();
+    op_halt:
+        return;
+    op_push: {
+        Value v;
+        v.u64 = i->operands[0];
+        push(v);
+        DISPATCH();
+    }
+    op_bool_not: {
+        Value v = pop().first;
+        v.u64 = !v.u64;
+        push(v);
+        DISPATCH();
+    }
+    op_pop:
+        pop();
+        DISPATCH();
+    op_dup: {
+        push(access_from_top(0), gc.stack_ptrs[gc.stack_ptrs.size() - 1]);
+        DISPATCH();
+    }
+    op_swap: {
+        if (gc.stack.size() < 2)
+            throw std::runtime_error("stack underflow");
+        std::swap(gc.stack[gc.stack.size() - 1], gc.stack[gc.stack.size() - 2]);
+
+        // bcoz ofc bitset doesnt implement shite
+        bool v = gc.stack_ptrs[gc.stack_ptrs.size() - 1];
+        gc.stack_ptrs[gc.stack_ptrs.size() - 1] = gc.stack_ptrs[gc.stack_ptrs.size() - 2];
+        gc.stack_ptrs[gc.stack_ptrs.size() - 2] = v;
+        DISPATCH();
+    }
+    op_over: {
+        push(access_from_top(1), gc.stack_ptrs[gc.stack_ptrs.size() - 2]);
+        DISPATCH();
+    }
+    op_call: {
+        call_stack.push_back({current_module, instruction_ptr});
+        instruction_ptr = i->operands[0];
+        DISPATCH();
+    }
+    op_call_extern: {
+
+        uint64_t str_ptr = i->operands[0];
+
+        std::string target_func = "";
+
+        const std::string &data_sec = loaded_modules[current_module].data;
+        while (str_ptr < data_sec.size() && data_sec[str_ptr] != '\0') {
+            target_func += data_sec[str_ptr++];
+        }
+        if (!global_linker_table.count(target_func)) {
+            throw std::runtime_error("Linker Error: Undefined external reference to " + target_func);
+        }
+
+        auto location = global_linker_table[target_func];
+        call_stack.push_back({current_module, instruction_ptr});
+        current_module = location.first;
+        instruction_ptr = location.second;
+    }
+        DISPATCH();
+    op_ret: {
+        if (call_stack.empty())
             return;
-        op_push: {
-            Value v;
-            v.u64 = i->operands[0];
-            push(v);
-            DISPATCH();
-        }
-        op_bool_not: {
-            Value v = pop().first;
-            v.u64 = !v.u64;
-            push(v);
-            DISPATCH();
-        }
-        op_pop:
-            pop();
-            DISPATCH();
-        op_dup: {
-            push(access_from_top(0), gc.stack_ptrs[gc.stack_ptrs.size() - 1]);
-            DISPATCH();
-        }
-        op_swap: {
-            if (gc.stack.size() < 2)
-                throw std::runtime_error("stack underflow");
-            std::swap(gc.stack[gc.stack.size() - 1], gc.stack[gc.stack.size() - 2]);
-
-            // bcoz ofc bitset doesnt implement shite
-            bool v = gc.stack_ptrs[gc.stack_ptrs.size() - 1];
-            gc.stack_ptrs[gc.stack_ptrs.size() - 1] = gc.stack_ptrs[gc.stack_ptrs.size() - 2];
-            gc.stack_ptrs[gc.stack_ptrs.size() - 2] = v;
-            DISPATCH();
-        }
-        op_over: {
-            push(access_from_top(1), gc.stack_ptrs[gc.stack_ptrs.size() - 2]);
-            DISPATCH();
-        }
-        op_call: {
-            call_stack.push_back({current_module, instruction_ptr});
-            instruction_ptr = i->operands[0];
-            DISPATCH();
-        }
-        op_call_extern: {
-
-            uint64_t str_ptr = i->operands[0];
-
-            std::string target_func = "";
-
-            const std::string &data_sec = loaded_modules[current_module].data;
-            while (str_ptr < data_sec.size() && data_sec[str_ptr] != '\0') {
-                target_func += data_sec[str_ptr++];
-            }
-            if (!global_linker_table.count(target_func)) {
-                throw std::runtime_error("Linker Error: Undefined external reference to " + target_func);
-            }
-
-            auto location = global_linker_table[target_func];
-            call_stack.push_back({current_module, instruction_ptr});
-            current_module = location.first;
-            instruction_ptr = location.second;
+        auto context = call_stack.back();
+        call_stack.pop_back();
+        current_module = context.first;
+        instruction_ptr = context.second;
+        DISPATCH();
+    }
+    op_declare: {
+        Value v;
+        v.u64 = 0;
+        gc.variables.push_back(v);
+        gc.variable_ptrs.push_back(false);
+        DISPATCH();
+    }
+    op_undeclare: {
+        const uint64_t num = gc.variables.size() - i->operands[0];
+        gc.variables.resize(num);
+        gc.variable_ptrs.resize(num);
+        DISPATCH();
+    }
+    op_load: {
+        int64_t idx = std::bit_cast<int64_t>(i->operands[0]);
+        push(access_variable(idx), gc.variable_ptrs[access_ptr_bool(idx)]);
+        DISPATCH();
+    }
+    op_store: {
+        auto x = pop();
+        access_variable(i->operands[0]) = x.first;
+        gc.variable_ptrs[access_ptr_bool(i->operands[0])] = x.second;
+        DISPATCH();
+    }
+    // okay i should prob document a lil
+    // metadata: 64 bits
+    // len: 61 bits | is_pointer_array: 1 bit | is_struct: 1 bit | mark_n_sweep: 1 bit
+    //                ^^^^^^^^^^^^^^^^^^^^^^^
+    //           "to scan or not to scan, that is the question" - Hrishabh Mittal
+    op_malloc: {
+        size_t size_in_bytes = pop().first.u64 + 8;
+        uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
+        // std::cout << "MALLOC: " << ptr << size_in_bytes << std::endl;
+        gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
+        uint64_t ptr_array = i->operands[0] ? 0b100 : 0;
+        ptr[0] = (size_in_bytes << 3) | ptr_array;
+        Value v;
+        v.ptr = &ptr[1];
+        push(v, true);
+        gc.allocs++;
+        if (gc.allocs >= gc.GC_THRESHOLD) {
+            gc.run();
         }
         DISPATCH();
-        op_ret: {
-            if (call_stack.empty())
-                return;
-            auto context = call_stack.back();
-            call_stack.pop_back();
-            current_module = context.first;
-            instruction_ptr = context.second;
-            DISPATCH();
-        }
-        op_declare: {
-            Value v;
-            v.u64 = 0;
-            gc.variables.push_back(v);
-            gc.variable_ptrs.push_back(false);
-            DISPATCH();
-        }
-        op_undeclare: {
-            const uint64_t num = gc.variables.size() - i->operands[0];
-            gc.variables.resize(num);
-            gc.variable_ptrs.resize(num);
-            DISPATCH();
-        }
-        op_load: {
-            int64_t idx = std::bit_cast<int64_t>(i->operands[0]);
-            push(access_variable(idx), gc.variable_ptrs[access_ptr_bool(idx)]);
-            DISPATCH();
-        }
-        op_store: {
-            auto x = pop();
-            access_variable(i->operands[0]) = x.first;
-            gc.variable_ptrs[access_ptr_bool(i->operands[0])] = x.second;
-            DISPATCH();
-        }
-        // okay i should prob document a lil
-        // metadata: 64 bits
-        // len: 61 bits | is_pointer_array: 1 bit | is_struct: 1 bit | mark_n_sweep: 1 bit
-        //                ^^^^^^^^^^^^^^^^^^^^^^^
-        //           "to scan or not to scan, that is the question" - Hrishabh Mittal
-        op_malloc: {
-            size_t size_in_bytes = pop().first.u64 + 8;
-            uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
-            // std::cout << "MALLOC: " << ptr << size_in_bytes << std::endl;
-            gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
-            uint64_t ptr_array = i->operands[0] ? 0b100 : 0;
-            ptr[0] = (size_in_bytes << 3) | ptr_array;
-            Value v;
-            v.ptr = &ptr[1];
-            push(v, true);
-            gc.allocs++;
-            if (gc.allocs >= gc.GC_THRESHOLD) {
-                gc.run();
-            }
-            DISPATCH();
-        }
-        op_malloc_struct: {
-            size_t size_in_bytes = gc.struct_len[i->operands[0]] + 8;
-            uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
-            // std::cout << "MALLOC: " << ptr << size_in_bytes << std::endl;
-            gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
-            ptr[0] = (i->operands[0] << 3) | 0b10;
-            Value v;
-            v.ptr = &ptr[1];
-            push(v, true);
-            gc.allocs++;
-            if (gc.allocs >= gc.GC_THRESHOLD) {
-                gc.run();
-            }
-            DISPATCH();
-        }
-        op_def_struct: {
-            defining_struct = true;
-            gc.struct_offsets.push_back({});
-            DISPATCH();
-        }
-        op_ptr_at: {
-            if (defining_struct)
-                gc.struct_offsets.back().push_back(i->operands[0]);
-            else
-                throw std::runtime_error("PTR_AT found outside struct definition.");
-            DISPATCH();
-        }
-        op_struct_size: {
-            // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was
-            // added in END_STRUCT.
-            if (defining_struct)
-                gc.struct_len.push_back(i->operands[0]);
-            else
-                throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
-            DISPATCH();
-        }
-        op_end_struct: {
-            defining_struct = false;
-            DISPATCH();
-        }
-        op_string_from: {
-            // todo: remove this, replace with something better
-            uint64_t *str = new uint64_t[2];
-            str[0] = reinterpret_cast<uint64_t>(&loaded_modules[current_module].data[i->operands[0]]);
-            str[1] = pop().first.u64;
-            Value v;
-            v.ptr = str;
-            push(v);
-            DISPATCH();
-        }
-        op_i8_aload: {
-            auto index = pop().first.u64;
-            int8_t *arr = reinterpret_cast<int8_t *>(pop().first.ptr);
-            Value res;
-            res.i64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_u8_aload: {
-            auto index = pop().first.u64;
-            uint8_t *arr = reinterpret_cast<uint8_t *>(pop().first.ptr);
-            Value res;
-            res.u64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_i16_aload: {
-            auto index = pop().first.u64;
-            int16_t *arr = reinterpret_cast<int16_t *>(pop().first.ptr);
-            Value res;
-            res.i64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_u16_aload: {
-            auto index = pop().first.u64;
-            uint16_t *arr = reinterpret_cast<uint16_t *>(pop().first.ptr);
-            Value res;
-            res.u64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_i32_aload: {
-            auto index = pop().first.u64;
-            int32_t *arr = reinterpret_cast<int32_t *>(pop().first.ptr);
-            Value res;
-            res.i64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_u32_aload: {
-            auto index = pop().first.u64;
-            uint32_t *arr = reinterpret_cast<uint32_t *>(pop().first.ptr);
-            Value res;
-            res.u64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_i64_aload: {
-            auto index = pop().first.u64;
-            uint64_t *arr = reinterpret_cast<uint64_t *>(pop().first.ptr);
-            Value res;
-            res.u64 = arr[index];
-            push(res);
-            DISPATCH();
-        }
-        op_i8_astore: {
-            auto val = pop().first;
-            auto index = pop().first.u64;
-            reinterpret_cast<int8_t *>(pop().first.ptr)[index] = static_cast<int8_t>(val.i32);
-            DISPATCH();
-        }
-        op_i16_astore: {
-            auto val = pop().first;
-            auto index = pop().first.u64;
-            reinterpret_cast<int16_t *>(pop().first.ptr)[index] = static_cast<int16_t>(val.i32);
-            DISPATCH();
-        }
-        op_i32_astore: {
-            auto val = pop().first;
-            auto index = pop().first.u64;
-            reinterpret_cast<int32_t *>(pop().first.ptr)[index] = val.i32;
-            DISPATCH();
-        }
-        op_i64_astore: {
-            auto val = pop().first;
-            auto index = pop().first.u64;
-            reinterpret_cast<uint64_t *>(pop().first.ptr)[index] = val.u64;
-            DISPATCH();
-        }
-        op_i32_negate: {
-            Value r = pop().first;
-            r.i32 = -r.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_add: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 + b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_sub: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 - b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_mult: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 * b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_div: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 / b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_u32_div: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u32 = a.u32 / b.u32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_mod: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 % b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_u32_mod: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u32 = a.u32 % b.u32;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_negate: {
-            Value r = pop().first;
-            r.i64 = -r.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_add: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 + b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_sub: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 - b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_mult: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 * b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_div: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 / b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_u64_div: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = a.u64 / b.u64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_mod: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 % b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_u64_mod: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = a.u64 % b.u64;
-            push(r);
-            DISPATCH();
-        }
-        op_f32_negate: {
-            Value r = pop().first;
-            r.f32 = -r.f32;
-            push(r);
-            DISPATCH();
-        }
-        op_f32_add: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = a.f32 + b.f32;
-            push(r);
-            DISPATCH();
-        }
-        op_f32_sub: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = a.f32 - b.f32;
-            push(r);
-            DISPATCH();
-        }
-        op_f32_mult: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = a.f32 * b.f32;
-            push(r);
-            DISPATCH();
-        }
-        op_f32_div: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = a.f32 / b.f32;
-            push(r);
-            DISPATCH();
-        }
-        op_f64_negate: {
-            Value r = pop().first;
-            r.f64 = -r.f64;
-            push(r);
-            DISPATCH();
-        }
-        op_f64_add: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = a.f64 + b.f64;
-            push(r);
-            DISPATCH();
-        }
-        op_f64_sub: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = a.f64 - b.f64;
-            push(r);
-            DISPATCH();
-        }
-        op_f64_mult: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = a.f64 * b.f64;
-            push(r);
-            DISPATCH();
-        }
-        op_f64_div: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = a.f64 / b.f64;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_and: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 & b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_or: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 | b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_xor: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 ^ b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_not: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = ~a.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_shl: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 << b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_shr: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = a.i32 >> b.i32;
-            push(r);
-            DISPATCH();
-        }
-        op_u32_shr: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u32 = a.u32 >> b.u32;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_and: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 & b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_or: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 | b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_xor: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 ^ b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_not: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = ~a.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_shl: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 << b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_i64_shr: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = a.i64 >> b.i64;
-            push(r);
-            DISPATCH();
-        }
-        op_u64_shr: {
-            Value b = pop().first;
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = a.u64 >> b.u64;
-            push(r);
-            DISPATCH();
-        }
-        op_i32_cmp: {
-            Value b = pop().first;
-            Value a = pop().first;
-            cmp_flags[E] = (a.i32 == b.i32);
-            cmp_flags[LT] = (a.i32 < b.i32);
-            cmp_flags[GT] = (a.i32 > b.i32);
-            DISPATCH();
-        }
-        op_u32_cmp: {
-            Value b = pop().first;
-            Value a = pop().first;
-            cmp_flags[E] = (a.u32 == b.u32);
-            cmp_flags[LT] = (a.u32 < b.u32);
-            cmp_flags[GT] = (a.u32 > b.u32);
-            DISPATCH();
-        }
-        op_i64_cmp: {
-            Value b = pop().first;
-            Value a = pop().first;
-            cmp_flags[E] = (a.i64 == b.i64);
-            cmp_flags[LT] = (a.i64 < b.i64);
-            cmp_flags[GT] = (a.i64 > b.i64);
-            DISPATCH();
-        }
-        op_u64_cmp: {
-            Value b = pop().first;
-            Value a = pop().first;
-            cmp_flags[E] = (a.u64 == b.u64);
-            cmp_flags[LT] = (a.u64 < b.u64);
-            cmp_flags[GT] = (a.u64 > b.u64);
-            DISPATCH();
-        }
-        op_f32_cmp: {
-            Value b = pop().first;
-            Value a = pop().first;
-            cmp_flags[E] = (a.f32 == b.f32);
-            cmp_flags[LT] = (a.f32 < b.f32);
-            cmp_flags[GT] = (a.f32 > b.f32);
-            DISPATCH();
-        }
-        op_f64_cmp: {
-            Value b = pop().first;
-            Value a = pop().first;
-            cmp_flags[E] = (a.f64 == b.f64);
-            cmp_flags[LT] = (a.f64 < b.f64);
-            cmp_flags[GT] = (a.f64 > b.f64);
-            DISPATCH();
-        }
-        op_i32_extend_i64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = static_cast<int64_t>(a.i32);
-            push(r);
-            DISPATCH();
-        }
-        op_u32_extend_i64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = static_cast<uint64_t>(a.u32);
-            push(r);
-            DISPATCH();
-        }
-        op_i32_wrap_i64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = 0;
-            r.i32 = static_cast<int32_t>(a.i64);
-            push(r);
-            DISPATCH();
-        }
-        op_i32_to_f64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = static_cast<double>(a.i32);
-            push(r);
-            DISPATCH();
-        }
-        op_u32_to_f64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = static_cast<double>(a.u32);
-            push(r);
-            DISPATCH();
-        }
-        op_i64_to_f32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = static_cast<float>(a.i64);
-            push(r);
-            DISPATCH();
-        }
-        op_i64_to_f64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = static_cast<double>(a.i64);
-            push(r);
-            DISPATCH();
-        }
-        op_u64_to_f32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = static_cast<float>(a.u64);
-            push(r);
-            DISPATCH();
-        }
-        op_u64_to_f64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = static_cast<double>(a.u64);
-            push(r);
-            DISPATCH();
-        }
-        op_f64_to_i32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i32 = static_cast<int32_t>(a.f64);
-            push(r);
-            DISPATCH();
-        }
-        op_f64_to_u32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u32 = static_cast<uint32_t>(a.f64);
-            push(r);
-            DISPATCH();
-        }
-        op_f64_to_i64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = static_cast<int64_t>(a.f64);
-            push(r);
-            DISPATCH();
-        }
-        op_f64_to_u64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = static_cast<uint64_t>(a.f64);
-            push(r);
-            DISPATCH();
-        }
-        op_f32_to_i64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = static_cast<int64_t>(a.f32);
-            push(r);
-            DISPATCH();
-        }
-        op_f32_to_u64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = static_cast<uint64_t>(a.f32);
-            push(r);
-            DISPATCH();
-        }
-        op_i32_to_f32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = static_cast<float>(a.i32);
-            push(r);
-            DISPATCH();
-        }
-        op_u32_to_f32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = static_cast<float>(a.u32);
-            push(r);
-            DISPATCH();
-        }
-        op_f32_to_i32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.i64 = 0;
-            r.i32 = static_cast<int32_t>(a.f32);
-            push(r);
-            DISPATCH();
-        }
-        op_f32_to_u32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.u64 = 0;
-            r.u32 = static_cast<uint32_t>(a.f32);
-            push(r);
-            DISPATCH();
-        }
-        op_f32_to_f64: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f64 = static_cast<double>(a.f32);
-            push(r);
-            DISPATCH();
-        }
-        op_f64_to_f32: {
-            Value a = pop().first;
-            Value r;
-            r.u64 = 0;
-            r.f32 = static_cast<float>(a.f64);
-            push(r);
-            DISPATCH();
-        }
+    }
+    op_malloc_struct: {
+        size_t size_in_bytes = gc.struct_len[i->operands[0]] + 8;
+        uint64_t *ptr = reinterpret_cast<uint64_t *>(new uint8_t[size_in_bytes]());
+        // std::cout << "MALLOC: " << ptr << size_in_bytes << std::endl;
+        gc.ptrs.push_back(reinterpret_cast<uint64_t>(&ptr[1]));
+        ptr[0] = (i->operands[0] << 3) | 0b10;
+        Value v;
+        v.ptr = &ptr[1];
+        push(v, true);
+        gc.allocs++;
+        if (gc.allocs >= gc.GC_THRESHOLD) {
+            gc.run();
+        }
+        DISPATCH();
+    }
+    op_def_struct: {
+        defining_struct = true;
+        gc.struct_offsets.push_back({});
+        DISPATCH();
+    }
+    op_ptr_at: {
+        if (defining_struct)
+            gc.struct_offsets.back().push_back(i->operands[0]);
+        else
+            throw std::runtime_error("PTR_AT found outside struct definition.");
+        DISPATCH();
+    }
+    op_struct_size: {
+        // todo: not allow multiple structsize in one struct def, also make sure to check if struct size was
+        // added in END_STRUCT.
+        if (defining_struct)
+            gc.struct_len.push_back(i->operands[0]);
+        else
+            throw std::runtime_error("STRUCT_SIZE found outside struct definition.");
+        DISPATCH();
+    }
+    op_end_struct: {
+        defining_struct = false;
+        DISPATCH();
+    }
+    op_string_from: {
+        // todo: remove this, replace with something better
+        uint64_t *str = new uint64_t[2];
+        str[0] = reinterpret_cast<uint64_t>(&loaded_modules[current_module].data[i->operands[0]]);
+        str[1] = pop().first.u64;
+        Value v;
+        v.ptr = str;
+        push(v);
+        DISPATCH();
+    }
+    op_i8_aload: {
+        auto index = pop().first.u64;
+        int8_t *arr = reinterpret_cast<int8_t *>(pop().first.ptr);
+        Value res;
+        res.i64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_u8_aload: {
+        auto index = pop().first.u64;
+        uint8_t *arr = reinterpret_cast<uint8_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i16_aload: {
+        auto index = pop().first.u64;
+        int16_t *arr = reinterpret_cast<int16_t *>(pop().first.ptr);
+        Value res;
+        res.i64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_u16_aload: {
+        auto index = pop().first.u64;
+        uint16_t *arr = reinterpret_cast<uint16_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i32_aload: {
+        auto index = pop().first.u64;
+        int32_t *arr = reinterpret_cast<int32_t *>(pop().first.ptr);
+        Value res;
+        res.i64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_u32_aload: {
+        auto index = pop().first.u64;
+        uint32_t *arr = reinterpret_cast<uint32_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i64_aload: {
+        auto index = pop().first.u64;
+        uint64_t *arr = reinterpret_cast<uint64_t *>(pop().first.ptr);
+        Value res;
+        res.u64 = arr[index];
+        push(res);
+        DISPATCH();
+    }
+    op_i8_astore: {
+        auto val = pop().first;
+        auto index = pop().first.u64;
+        reinterpret_cast<int8_t *>(pop().first.ptr)[index] = static_cast<int8_t>(val.i32);
+        DISPATCH();
+    }
+    op_i16_astore: {
+        auto val = pop().first;
+        auto index = pop().first.u64;
+        reinterpret_cast<int16_t *>(pop().first.ptr)[index] = static_cast<int16_t>(val.i32);
+        DISPATCH();
+    }
+    op_i32_astore: {
+        auto val = pop().first;
+        auto index = pop().first.u64;
+        reinterpret_cast<int32_t *>(pop().first.ptr)[index] = val.i32;
+        DISPATCH();
+    }
+    op_i64_astore: {
+        auto val = pop().first;
+        auto index = pop().first.u64;
+        reinterpret_cast<uint64_t *>(pop().first.ptr)[index] = val.u64;
+        DISPATCH();
+    }
+    op_i32_negate: {
+        Value r = pop().first;
+        r.i32 = -r.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_add: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 + b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_sub: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 - b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_mult: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 * b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_div: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 / b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_u32_div: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u32 = a.u32 / b.u32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_mod: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 % b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_u32_mod: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u32 = a.u32 % b.u32;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_negate: {
+        Value r = pop().first;
+        r.i64 = -r.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_add: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 + b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_sub: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 - b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_mult: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 * b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_div: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 / b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_u64_div: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = a.u64 / b.u64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_mod: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 % b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_u64_mod: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = a.u64 % b.u64;
+        push(r);
+        DISPATCH();
+    }
+    op_f32_negate: {
+        Value r = pop().first;
+        r.f32 = -r.f32;
+        push(r);
+        DISPATCH();
+    }
+    op_f32_add: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = a.f32 + b.f32;
+        push(r);
+        DISPATCH();
+    }
+    op_f32_sub: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = a.f32 - b.f32;
+        push(r);
+        DISPATCH();
+    }
+    op_f32_mult: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = a.f32 * b.f32;
+        push(r);
+        DISPATCH();
+    }
+    op_f32_div: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = a.f32 / b.f32;
+        push(r);
+        DISPATCH();
+    }
+    op_f64_negate: {
+        Value r = pop().first;
+        r.f64 = -r.f64;
+        push(r);
+        DISPATCH();
+    }
+    op_f64_add: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = a.f64 + b.f64;
+        push(r);
+        DISPATCH();
+    }
+    op_f64_sub: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = a.f64 - b.f64;
+        push(r);
+        DISPATCH();
+    }
+    op_f64_mult: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = a.f64 * b.f64;
+        push(r);
+        DISPATCH();
+    }
+    op_f64_div: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = a.f64 / b.f64;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_and: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 & b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_or: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 | b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_xor: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 ^ b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_not: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = ~a.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_shl: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 << b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_shr: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = a.i32 >> b.i32;
+        push(r);
+        DISPATCH();
+    }
+    op_u32_shr: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u32 = a.u32 >> b.u32;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_and: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 & b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_or: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 | b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_xor: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 ^ b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_not: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = ~a.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_shl: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 << b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_i64_shr: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = a.i64 >> b.i64;
+        push(r);
+        DISPATCH();
+    }
+    op_u64_shr: {
+        Value b = pop().first;
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = a.u64 >> b.u64;
+        push(r);
+        DISPATCH();
+    }
+    op_i32_cmp: {
+        Value b = pop().first;
+        Value a = pop().first;
+        cmp_flags[E] = (a.i32 == b.i32);
+        cmp_flags[LT] = (a.i32 < b.i32);
+        cmp_flags[GT] = (a.i32 > b.i32);
+        DISPATCH();
+    }
+    op_u32_cmp: {
+        Value b = pop().first;
+        Value a = pop().first;
+        cmp_flags[E] = (a.u32 == b.u32);
+        cmp_flags[LT] = (a.u32 < b.u32);
+        cmp_flags[GT] = (a.u32 > b.u32);
+        DISPATCH();
+    }
+    op_i64_cmp: {
+        Value b = pop().first;
+        Value a = pop().first;
+        cmp_flags[E] = (a.i64 == b.i64);
+        cmp_flags[LT] = (a.i64 < b.i64);
+        cmp_flags[GT] = (a.i64 > b.i64);
+        DISPATCH();
+    }
+    op_u64_cmp: {
+        Value b = pop().first;
+        Value a = pop().first;
+        cmp_flags[E] = (a.u64 == b.u64);
+        cmp_flags[LT] = (a.u64 < b.u64);
+        cmp_flags[GT] = (a.u64 > b.u64);
+        DISPATCH();
+    }
+    op_f32_cmp: {
+        Value b = pop().first;
+        Value a = pop().first;
+        cmp_flags[E] = (a.f32 == b.f32);
+        cmp_flags[LT] = (a.f32 < b.f32);
+        cmp_flags[GT] = (a.f32 > b.f32);
+        DISPATCH();
+    }
+    op_f64_cmp: {
+        Value b = pop().first;
+        Value a = pop().first;
+        cmp_flags[E] = (a.f64 == b.f64);
+        cmp_flags[LT] = (a.f64 < b.f64);
+        cmp_flags[GT] = (a.f64 > b.f64);
+        DISPATCH();
+    }
+    op_i32_extend_i64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = static_cast<int64_t>(a.i32);
+        push(r);
+        DISPATCH();
+    }
+    op_u32_extend_i64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = static_cast<uint64_t>(a.u32);
+        push(r);
+        DISPATCH();
+    }
+    op_i32_wrap_i64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = 0;
+        r.i32 = static_cast<int32_t>(a.i64);
+        push(r);
+        DISPATCH();
+    }
+    op_i32_to_f64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = static_cast<double>(a.i32);
+        push(r);
+        DISPATCH();
+    }
+    op_u32_to_f64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = static_cast<double>(a.u32);
+        push(r);
+        DISPATCH();
+    }
+    op_i64_to_f32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = static_cast<float>(a.i64);
+        push(r);
+        DISPATCH();
+    }
+    op_i64_to_f64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = static_cast<double>(a.i64);
+        push(r);
+        DISPATCH();
+    }
+    op_u64_to_f32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = static_cast<float>(a.u64);
+        push(r);
+        DISPATCH();
+    }
+    op_u64_to_f64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = static_cast<double>(a.u64);
+        push(r);
+        DISPATCH();
+    }
+    op_f64_to_i32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i32 = static_cast<int32_t>(a.f64);
+        push(r);
+        DISPATCH();
+    }
+    op_f64_to_u32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u32 = static_cast<uint32_t>(a.f64);
+        push(r);
+        DISPATCH();
+    }
+    op_f64_to_i64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = static_cast<int64_t>(a.f64);
+        push(r);
+        DISPATCH();
+    }
+    op_f64_to_u64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = static_cast<uint64_t>(a.f64);
+        push(r);
+        DISPATCH();
+    }
+    op_f32_to_i64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = static_cast<int64_t>(a.f32);
+        push(r);
+        DISPATCH();
+    }
+    op_f32_to_u64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = static_cast<uint64_t>(a.f32);
+        push(r);
+        DISPATCH();
+    }
+    op_i32_to_f32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = static_cast<float>(a.i32);
+        push(r);
+        DISPATCH();
+    }
+    op_u32_to_f32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = static_cast<float>(a.u32);
+        push(r);
+        DISPATCH();
+    }
+    op_f32_to_i32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.i64 = 0;
+        r.i32 = static_cast<int32_t>(a.f32);
+        push(r);
+        DISPATCH();
+    }
+    op_f32_to_u32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.u64 = 0;
+        r.u32 = static_cast<uint32_t>(a.f32);
+        push(r);
+        DISPATCH();
+    }
+    op_f32_to_f64: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f64 = static_cast<double>(a.f32);
+        push(r);
+        DISPATCH();
+    }
+    op_f64_to_f32: {
+        Value a = pop().first;
+        Value r;
+        r.u64 = 0;
+        r.f32 = static_cast<float>(a.f64);
+        push(r);
+        DISPATCH();
+    }
 
-        // kinda temporary instructions, ill fix later hehe
-        // update: nvm they seem kinda permanent
-        op_pe: {
-            Value r;
-            r.u64 = cmp_flags[E] ? 1 : 0;
-            push(r);
-            DISPATCH();
-        }
-        op_pne: {
-            Value r;
-            r.u64 = cmp_flags[E] ? 0 : 1;
-            push(r);
-            DISPATCH();
-        }
-        op_plt: {
-            Value r;
-            r.u64 = cmp_flags[LT] ? 1 : 0;
-            push(r);
-            DISPATCH();
-        }
-        op_pgt: {
-            Value r;
-            r.u64 = cmp_flags[GT] ? 1 : 0;
-            push(r);
-            DISPATCH();
-        }
-        op_ple: {
-            Value r;
-            r.u64 = (cmp_flags[LT] || cmp_flags[E]) ? 1 : 0;
-            push(r);
-            DISPATCH();
-        }
-        op_pge: {
-            Value r;
-            r.u64 = (cmp_flags[GT] || cmp_flags[E]) ? 1 : 0;
-            push(r);
-            DISPATCH();
-        }
-        op_jc: {
-            bool jmp = pop().first.u64;
-            if (jmp)
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        }
-        op_jnc: {
-            bool jmp = pop().first.u64;
-            if (!jmp)
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        }
-        op_jmp:
+    // kinda temporary instructions, ill fix later hehe
+    // update: nvm they seem kinda permanent
+    op_pe: {
+        Value r;
+        r.u64 = cmp_flags[E] ? 1 : 0;
+        push(r);
+        DISPATCH();
+    }
+    op_pne: {
+        Value r;
+        r.u64 = cmp_flags[E] ? 0 : 1;
+        push(r);
+        DISPATCH();
+    }
+    op_plt: {
+        Value r;
+        r.u64 = cmp_flags[LT] ? 1 : 0;
+        push(r);
+        DISPATCH();
+    }
+    op_pgt: {
+        Value r;
+        r.u64 = cmp_flags[GT] ? 1 : 0;
+        push(r);
+        DISPATCH();
+    }
+    op_ple: {
+        Value r;
+        r.u64 = (cmp_flags[LT] || cmp_flags[E]) ? 1 : 0;
+        push(r);
+        DISPATCH();
+    }
+    op_pge: {
+        Value r;
+        r.u64 = (cmp_flags[GT] || cmp_flags[E]) ? 1 : 0;
+        push(r);
+        DISPATCH();
+    }
+    op_jc: {
+        bool jmp = pop().first.u64;
+        if (jmp)
             instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_je:
-            if (cmp_flags[E])
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_jne:
-            if (!cmp_flags[E])
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_jlt:
-            if (cmp_flags[LT])
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_jgt:
-            if (cmp_flags[GT])
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_jle:
-            if (cmp_flags[LT] || cmp_flags[E])
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_jge:
-            if (cmp_flags[GT] || cmp_flags[E])
-                instruction_ptr = i->operands[0];
-            DISPATCH();
-        op_print_u32:
-            std::cout << pop().first.u32;
-            DISPATCH();
-        op_print_u64:
-            std::cout << pop().first.u64;
-            DISPATCH();
-        op_print_f64:
-            std::cout << pop().first.f64;
-            DISPATCH();
-        op_print_i32:
-            std::cout << pop().first.i32;
-            DISPATCH();
-        op_print_f32:
-            std::cout << pop().first.f32;
-            DISPATCH();
-        op_print_i64:
-            std::cout << pop().first.i64;
-            DISPATCH();
-        op_print_string: {
-            // todo: remove this for something better (THINK MARK THINK)
-            uint64_t *str = reinterpret_cast<uint64_t *>(pop().first.ptr);
-            char *ptr = reinterpret_cast<char *>(str[0]);
-            uint64_t len = str[1];
-            std::cout << std::string_view(ptr, len);
-            DISPATCH();
-        }
+        DISPATCH();
+    }
+    op_jnc: {
+        bool jmp = pop().first.u64;
+        if (!jmp)
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    }
+    op_jmp:
+        instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_je:
+        if (cmp_flags[E])
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_jne:
+        if (!cmp_flags[E])
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_jlt:
+        if (cmp_flags[LT])
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_jgt:
+        if (cmp_flags[GT])
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_jle:
+        if (cmp_flags[LT] || cmp_flags[E])
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_jge:
+        if (cmp_flags[GT] || cmp_flags[E])
+            instruction_ptr = i->operands[0];
+        DISPATCH();
+    op_print_u32:
+        std::cout << pop().first.u32;
+        DISPATCH();
+    op_print_u64:
+        std::cout << pop().first.u64;
+        DISPATCH();
+    op_print_f64:
+        std::cout << pop().first.f64;
+        DISPATCH();
+    op_print_i32:
+        std::cout << pop().first.i32;
+        DISPATCH();
+    op_print_f32:
+        std::cout << pop().first.f32;
+        DISPATCH();
+    op_print_i64:
+        std::cout << pop().first.i64;
+        DISPATCH();
+    op_print_string: {
+        // todo: remove this for something better (THINK MARK THINK)
+        uint64_t *str = reinterpret_cast<uint64_t *>(pop().first.ptr);
+        char *ptr = reinterpret_cast<char *>(str[0]);
+        uint64_t len = str[1];
+        std::cout << std::string_view(ptr, len);
+        DISPATCH();
+    }
+    op_i32_inc: {
+        int64_t idx = std::bit_cast<int64_t>(i->operands[0]);
+        access_variable(idx).i32++;
+        DISPATCH();
+    }
+    op_i32_dec: {
+        int64_t idx = std::bit_cast<int64_t>(i->operands[0]);
+        access_variable(idx).i32--;
+        DISPATCH();
+    }
+    op_i64_inc: {
+        int64_t idx = std::bit_cast<int64_t>(i->operands[0]);
+        access_variable(idx).i64++;
+        DISPATCH();
+    }
+    op_i64_dec: {
+        int64_t idx = std::bit_cast<int64_t>(i->operands[0]);
+        access_variable(idx).i64--;
+        DISPATCH();
+    }
+    op_declare_init: {
+        Value v;
+        v.u64 = 0;
+        gc.variables.push_back(v);
+        gc.variable_ptrs.push_back(false);
+        auto x = pop();
+        access_variable(i->operands[0]) = x.first;
+        gc.variable_ptrs[access_ptr_bool(i->operands[0])] = x.second;
+        DISPATCH();
+    }
     }
 };
 } // namespace bvm

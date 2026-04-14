@@ -42,7 +42,7 @@ enum class OPCODE : uint8_t {
     I16_ASTORE,
     I32_ASTORE,
     I64_ASTORE,
-    
+
     BOOL_NOT,
 
     I32_NEGATE,
@@ -147,6 +147,12 @@ enum class OPCODE : uint8_t {
     PRINT_F64,
     PRINT_STRING,
 
+    // optimiser instructions
+    I32_INC,
+    I64_INC,
+    I32_DEC,
+    I64_DEC,
+    DECLARE_INIT,
     END_GEN_ENUM_NAMES
 };
 template <auto op> constexpr std::string_view enum_name_const() {

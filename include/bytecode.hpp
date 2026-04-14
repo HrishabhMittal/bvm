@@ -52,11 +52,11 @@ inline program load_bytecode(std::ifstream &in) {
     out.code.resize(size);
     for (uint64_t i = 0; i < size; i++) {
         in.read(reinterpret_cast<char *>(&byte), sizeof(byte));
-        uint64_t operand = 0;
-        if (takes_operand(static_cast<OPCODE>(byte))) {
-            in.read(reinterpret_cast<char *>(&operand), sizeof(operand));
-        }
-        out.code[i] = {static_cast<OPCODE>(byte), {operand}};
+        const uint32_t takes = takes_operand(static_cast<OPCODE>(byte));
+        instruction instr;
+        instr.op = static_cast<OPCODE>(byte);
+        in.read(reinterpret_cast<char *>(instr.operands), sizeof(uint64_t)*takes);
+        out.code[i] = instr;
     }
     in.read(reinterpret_cast<char *>(&size), sizeof(size));
     out.data.resize(size);
@@ -88,8 +88,9 @@ inline void dump_bytecode(const program &ins, std::ofstream &out) {
     out.write(reinterpret_cast<const char *>(&size), sizeof(size));
     for (auto &i : ins.code) {
         out.write(reinterpret_cast<const char *>(&i.op), sizeof(i.op));
-        if (takes_operand(i.op)) {
-            out.write(reinterpret_cast<const char *>(&i.operands[0]), sizeof(uint64_t));
+        const uint32_t takes = takes_operand(i.op);
+        for (int j=0;j<takes;j++) {
+            out.write(reinterpret_cast<const char *>(&i.operands[j]), sizeof(uint64_t));
         }
     }
     size = ins.data.size();

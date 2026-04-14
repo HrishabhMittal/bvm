@@ -3,3 +3,4 @@
 #include "opcode.hpp"
 #include "vm.hpp"
 #include "gc.hpp"
+#include "optimiser.hpp"
